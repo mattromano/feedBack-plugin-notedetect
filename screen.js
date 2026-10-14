@@ -1358,17 +1358,16 @@ function _ndGradeClean(hit, timingError, pitchError, cleanTimingMs, cleanPitchCe
 
 // ── Public judgment-event enrichment (notedetect:hit / notedetect:miss) ──
 // Named techniques of a chart note, for consumers of the judgment events.
-// Reads the core wire format (`bn` bend amount, `sl`/`slu` slide-to fret
-// with -1 = none, boolean flags otherwise). Also accepts the boolean
-// `b`/`sl` shape note_detect builds for the scorers. Empty array when the
-// note has no technique; null when there's no chart note (external
+// Bend / slide are read through _ndHasBend / _ndHasSlide (core wire format
+// `bn` / `sl`/`slu` with -1 = none, or the boolean `b`/`sl` shape
+// note_detect builds for the scorers); other flags are booleans. Empty array
+// when the note has no technique; null when there's no chart note (external
 // verdicts).
 function _ndTechniqueNames(n) {
     if (!n || typeof n !== 'object') return null;
     const out = [];
-    if ((Number(n.bn) || 0) > 0 || n.b === true) out.push('bend');
-    if ((typeof n.sl === 'number' && n.sl >= 0) || (typeof n.slu === 'number' && n.slu >= 0)
-        || n.sl === true) out.push('slide');
+    if (_ndHasBend(n)) out.push('bend');
+    if (_ndHasSlide(n)) out.push('slide');
     if (n.hm) out.push('harmonic');
     if (n.hp) out.push('pinchHarmonic');
     if (n.ho) out.push('hammerOn');
@@ -1405,19 +1404,6 @@ function _ndStringVerdicts(entries) {
         out.push(v);
     }
     return out;
-}
-
-// Name of the chart section containing time `t` (sections sorted by
-// `time`), or null before the first one / without sections.
-function _ndSectionAt(sections, t) {
-    if (!Array.isArray(sections) || !Number.isFinite(t)) return null;
-    let name = null;
-    for (const sec of sections) {
-        if (!sec || !Number.isFinite(sec.time)) continue;
-        if (sec.time <= t) name = sec.name != null ? String(sec.name) : null;
-        else break;
-    }
-    return name;
 }
 
 function _ndMakeJudgment(opts) {
@@ -6118,8 +6104,9 @@ function createNoteDetector(options = {}) {
             judgment.detector = judgment._external ? 'external' : _ndVerifierPathLabel();
             // The section the NOTE sits in (by chart time), not the
             // playhead's: engine verdicts land ~0.4 s late.
-            judgment.section = _ndSectionAt(hw && hw.getSections ? hw.getSections() : null,
-                judgment.noteTime) || currentSection || null;
+            // Same lookup the per-section stats bin by (_ndSectionNameAt).
+            judgment.section = (hw ? _ndSectionNameAt(judgment.noteTime) : null)
+                || currentSection || null;
             judgment.points = Number.isFinite(judgment._ndPoints) ? judgment._ndPoints : 0;
             judgment.multiplier = multiplier;
             judgment.streak = streak;
