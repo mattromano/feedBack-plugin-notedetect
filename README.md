@@ -106,6 +106,7 @@ Other plugins can listen for these `window`-scoped `CustomEvent`s:
 |---|---|---|
 | `notedetect:hit` | A chart note is classified as a clean hit | Full judgment object (includes legacy fields: `{ note, time, noteTime, expectedMidi, detectedMidi, confidence }`) |
 | `notedetect:miss` | A chart note's timing window expires **or** a matched-but-not-clean attempt is classified | Full judgment object (see field reference below) |
+| `notedetect:onset` | Any new note attack (only new attacks fire; a note ringing on never does) | `{ t, midi, confidence, level, source, isDefault }`: `t` is the chart time of the attack in seconds, input latency removed; `source` is `'engine'` (desktop engine onset, with `midi` and `confidence`) or `'level'` (input-level attack, with `level` on note_detect's 0–1 meter scale); unknown fields are `null`. One event per attack (80 ms refractory across both sources). Dispatched twice like every notedetect event: on `window`, then bubbling from the instance root, sharing one detail object |
 | `notedetect:session` | End of song | aggregate stats for the full run (see [Practice Journal plugin](https://github.com/got-feedback/feedback-plugin-practice) for a consumer) |
 
 When Slopsmith's event bus is available, the plugin also emits

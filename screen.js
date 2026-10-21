@@ -735,6 +735,23 @@ function _ndIsStreakMilestone(streak) {
     return streak === 25 || streak === 50 || (streak >= 100 && streak % 100 === 0);
 }
 
+// notedetect:onset — a new note attack. A level attack is a jump of at least
+// x1.6 (+4 dB) to at least 0.05 on note_detect's rms*5 level scale, so a note
+// ringing on (decaying) never fires. One emitter per instance with an 80 ms
+// refractory merges an engine onset and a level attack of the same pick.
+const _ND_ONSET_MIN_LEVEL = 0.05;
+const _ND_ONSET_RISE = 1.6;
+const _ND_ONSET_REFRACTORY_S = 0.08;
+
+function _ndLevelOnset(prevLevel, level) {
+    const prev = Number.isFinite(prevLevel) ? prevLevel : 0;
+    return level >= _ND_ONSET_MIN_LEVEL && level >= prev * _ND_ONSET_RISE;
+}
+
+function _ndOnsetDue(lastT, t) {
+    return lastT == null || t < lastT || t - lastT >= _ND_ONSET_REFRACTORY_S;
+}
+
 // Scoring-UI skin. One global preference shared by every instance (and read
 // by the highway renderer for its FX palette), stored under a standalone
 // key so non-notedetect consumers don't have to parse the settings blob.
@@ -3981,6 +3998,10 @@ function createNoteDetector(options = {}) {
     let bridgeOnsetSeqSeen = new Map();
     let bridgeNewOnsets = new Map();
     let bridgeOnsetPrimed = false;
+    // notedetect:onset state: chart time of the last emitted onset (the
+    // refractory) and the previous level reading (the level attack).
+    let lastOnsetT = null;
+    let prevOnsetLevel = 0;
 
     // Visual-feedback tracking
     let lastHitCount = 0;
@@ -4492,10 +4513,16 @@ function createNoteDetector(options = {}) {
                                     if (bridgeOnsetPrimed
                                         && typeof n.confidence === 'number'
                                         && n.confidence >= detectionConfidenceMin) {
+                                        const ageMs = Number.isFinite(n.onsetMs) ? n.onsetMs : 0;
                                         bridgeNewOnsets.set(n.midi, {
-                                            ageMs: Number.isFinite(n.onsetMs) ? n.onsetMs : 0,
+                                            ageMs,
                                             conf: n.confidence,
                                         });
+                                        if (hw && typeof hw.getTime === 'function') {
+                                            const avOffsetSec = hw.getAvOffset ? hw.getAvOffset() / 1000 : 0;
+                                            _ndEmitOnset(hw.getTime() + avOffsetSec - latencyOffset - ageMs / 1000,
+                                                { midi: n.midi, confidence: n.confidence, source: 'engine' });
+                                        }
                                     }
                                 }
                                 bridgeOnsetPrimed = true;
@@ -4937,6 +4964,8 @@ function createNoteDetector(options = {}) {
         bridgeOnsetSeqSeen = new Map();
         bridgeNewOnsets = new Map();
         bridgeOnsetPrimed = false;
+        lastOnsetT = null;
+        prevOnsetLevel = 0;
         // Disconnect the full node chain in reverse-connect order.
         // Critical in borrower mode (external audioCtx): we leave the
         // caller's context open, and any node we don't disconnect
@@ -5131,6 +5160,10 @@ function createNoteDetector(options = {}) {
                         _ndLevelSamples.length = 0;
                     }
                     _ndLevelSamples.push({ songT, level: inputLevel });
+                    if (_ndLevelOnset(prevOnsetLevel, inputLevel)) {
+                        _ndEmitOnset(songT - latencyOffset, { level: inputLevel, source: 'level' });
+                    }
+                    prevOnsetLevel = inputLevel;
                     const cutoff = songT - _ND_LEVEL_HISTORY_S;
                     while (_ndLevelSamples.length > 0 && _ndLevelSamples[0].songT < cutoff) {
                         _ndLevelSamples.shift();
@@ -5296,6 +5329,10 @@ function createNoteDetector(options = {}) {
             const last = _ndLevelSamples.length ? _ndLevelSamples[_ndLevelSamples.length - 1].songT : -Infinity;
             if (songT < last - 0.05) _ndLevelSamples.length = 0;   // seek / drill-wrap → reset
             _ndLevelSamples.push({ songT, level: lvl });
+            if (_ndLevelOnset(prevOnsetLevel, lvl)) {
+                _ndEmitOnset(songT - latencyOffset, { level: lvl, source: 'level' });
+            }
+            prevOnsetLevel = lvl;
             const cutoff = songT - _ND_LEVEL_HISTORY_S;
             while (_ndLevelSamples.length > 0 && _ndLevelSamples[0].songT < cutoff) _ndLevelSamples.shift();
             while (_ndLevelSamples.length > 240) _ndLevelSamples.shift();
@@ -5608,6 +5645,16 @@ function createNoteDetector(options = {}) {
         const init = { detail, bubbles: true };
         try { window.dispatchEvent(new CustomEvent(type, init)); } catch (e) {}
         try { instanceRoot.dispatchEvent(new CustomEvent(type, init)); } catch (e) {}
+    }
+
+    // notedetect:onset — any new note attack, at chart time `t` with input
+    // latency removed. Engine onsets and level attacks share the refractory.
+    function _ndEmitOnset(t, fields) {
+        if (!enabled || !Number.isFinite(t)) return;
+        const { midi = null, confidence = null, level = null, source } = fields || {};
+        if (!_ndOnsetDue(lastOnsetT, t)) return;
+        lastOnsetT = t;
+        dispatchInstanceEvent('notedetect:onset', { t, midi, confidence, level, source, isDefault });
     }
 
     function emitSlopsmithJudgment(judgment) {

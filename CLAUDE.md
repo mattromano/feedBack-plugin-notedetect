@@ -71,6 +71,7 @@ defer the window copy a task and drop it if the element copy arrived
 | `notedetect:fx` | yes | `{ fxType: 'multiplier', mult, prevMult, streak }` on tier change; `{ fxType: 'milestone', streak, mult }` at 25/50/every 100; `{ fxType: 'streakBreak', lostStreak, prevMult }` after a ≥10 run dies. All carry `{ isDefault, ts }` |
 | `notedetect:session` | no | end-of-song summary: `{ title, artist, arrangement, accuracy, hits, misses, bestStreak, score, maxMultiplier, grade, fullCombo, sections, timestamp }` (consumed by the practice journal — never rename/remove keys) |
 | `notedetect:skin` | yes | `{ skin }` — re-resolve any cached palette on this |
+| `notedetect:onset` | DOM only | `{ t, midi, confidence, level, source, isDefault }` for any new note attack: `t` = chart time of the attack, input latency removed; `source` `'engine'` (desktop `bridgeNewOnsets`, with `midi`/`confidence`) or `'level'` (level attack ≥ 0.05 and ≥ ×1.6 the previous reading, with `level`); unknown fields `null`. One emitter (`_ndEmitOnset`) with an 80 ms refractory; only new attacks fire |
 | `notedetect:verify` | DOM only | timing-free verify hits for `setVerifyTarget` consumers (Step Mode, contained playback) |
 
 ### Per-note verdicts for renderers
