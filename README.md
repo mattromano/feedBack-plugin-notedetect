@@ -65,6 +65,8 @@ Advanced (persisted setting, no dedicated control yet — set via `window.noteDe
 
 All settings are persisted in localStorage across sessions.
 
+Other plugins can pick the input device with `window.noteDetect.setDevice(deviceId)`: it persists the choice and restarts capture only if detection is already on.
+
 ## Scoring
 
 - Accuracy percentage displayed in the highway HUD (top right)

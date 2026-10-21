@@ -30,6 +30,7 @@ get the per-string detail they used to patch `screen.js` for.
 
 ### Added
 
+- **`setDevice(deviceId)`**: public API on every instance (`window.noteDetect.setDevice`) to pick the input device; persists it and restarts capture only if detection is on.
 - **Richer `notedetect:hit` / `notedetect:miss` payloads** (#77), all additive: `key`, per-string
   `strings` verdicts (`{ s, f, hit, centsError, snr?, detectedAt? }`), named `techniques`,
   `latencyMs`, `avOffsetMs`, `detector`, `section`, `counted`, `points`, `multiplier`, `streak`,

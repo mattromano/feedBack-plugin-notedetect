@@ -12216,6 +12216,17 @@ function createNoteDetector(options = {}) {
         restartAudio();
     }
 
+    // Public: choose the input device programmatically (e.g. Build-a-Band's
+    // setup screen). Same path as the gear popover's device dropdown, but only
+    // restarts capture when detection is already running, so it never opens
+    // the mic while detection is off.
+    function setDevice(deviceId) {
+        if (typeof deviceId !== 'string') return;
+        selectedDeviceId = deviceId;
+        saveSettings();
+        if (enabled) restartAudio();
+    }
+
     function onChannelChange(channel) {
         // Route through setChannel() so a bound engine source (desktop multi-input)
         // is RE-TARGETED to the new channel, not just the browser splitter. Updating
@@ -18432,6 +18443,7 @@ function createNoteDetector(options = {}) {
         disable,
         destroy,
         isEnabled: () => enabled,
+        setDevice,
         // Drill conductor (speed/goal orchestrator, ported from slopsmith
         // 1.39.1). startDrill(start, end, {label, focus, goal, speedLadder,
         // expandContext, maxExpansions}) arms a slowed A-B loop and steps the
