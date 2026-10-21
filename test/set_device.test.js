@@ -6,12 +6,13 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { loadDetectionCore } = require('./_loader');
 
-function load() {
+function load(extra) {
     const writes = [];
     const gum = { calls: 0 };
     const core = loadDetectionCore({
         sandboxBeforeRun(sb) {
             sb.localStorage.setItem = (k, v) => { writes.push([k, v]); };
+            if (extra) extra(sb);
             sb.navigator.mediaDevices.getUserMedia = () => {
                 gum.calls++;
                 return Promise.reject(new Error('not available in vm'));
@@ -55,4 +56,18 @@ test('setDevice is on the documented API surface', () => {
     const { core } = load();
     const det = core.createNoteDetector({ isDefault: true });
     assert.equal(typeof det.setDevice, 'function');
+});
+
+test('setDevice updates an open gear select', () => {
+    const select = { value: '' };
+    const { core } = load((sb) => {
+        const orig = sb.document.querySelector;
+        sb.document.querySelector = (sel) => (
+            sel === '.nd-settings-panel .nd-device-select'
+                ? select
+                : (typeof orig === 'function' ? orig.call(sb.document, sel) : null));
+    });
+    const det = core.createNoteDetector({ isDefault: true });
+    det.setDevice('dev-9');
+    assert.equal(select.value, 'dev-9');
 });

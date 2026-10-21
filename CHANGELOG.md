@@ -5,6 +5,10 @@
 Guitar scoring accuracy: notes the player got right no longer score as misses, and stats plugins
 get the per-string detail they used to patch `screen.js` for.
 
+### Added
+
+- `setScoreHudHidden(hidden)` / `isScoreHudHidden()` on every instance's API: hides the score HUD and flash overlay and skips the end summary (take still credited) for Build-a-Band. `setDevice` now also updates an open gear device select.
+
 ### Fixed
 
 - **Capo charts** (#73): fretted notes are read from the nut, the Rocksmith way (a capo-4 E chord

@@ -12224,6 +12224,13 @@ function createNoteDetector(options = {}) {
         if (typeof deviceId !== 'string') return;
         selectedDeviceId = deviceId;
         saveSettings();
+        // Keep an open gear popover in step with the new device.
+        if (isDefault) {
+            try {
+                const sel = document.querySelector('.nd-settings-panel .nd-device-select');
+                if (sel) sel.value = deviceId;
+            } catch (e) { /* cosmetic */ }
+        }
         if (enabled) restartAudio();
     }
 
@@ -14995,6 +15002,18 @@ function createNoteDetector(options = {}) {
         try { return q.active() && q.source() === 'gig'; } catch (_) { return false; }
     }
 
+    // Build-a-Band hides the score HUD and the end summary (band mode). Not persisted.
+    let scoreHudHidden = false;
+    function setScoreHudHidden(hidden) {
+        if (typeof hidden !== 'boolean') return false;
+        scoreHudHidden = hidden;
+        try {
+            if (hidden) instanceRoot.setAttribute('data-nd-score-hidden', '1');
+            else instanceRoot.removeAttribute('data-nd-score-hidden');
+        } catch (e) {}
+        return true;
+    }
+
     function _endOfSongOnEnded() {
         if (!isDefault) return;
         if (!enabled) return;
@@ -15002,7 +15021,7 @@ function createNoteDetector(options = {}) {
         // In a gig, skip the overlay — but still credit the take, exactly as a
         // built summary would have (same _summaryWorthy() gate showSummary
         // applies), and still tear the detector down between songs.
-        if (_inGigSet()) {
+        if (_inGigSet() || scoreHudHidden) {
             try {
                 if (_summaryWorthy()) _submitSongXp();
             } catch (e) {
@@ -18444,6 +18463,8 @@ function createNoteDetector(options = {}) {
         destroy,
         isEnabled: () => enabled,
         setDevice,
+        setScoreHudHidden,
+        isScoreHudHidden: () => scoreHudHidden,
         // Drill conductor (speed/goal orchestrator, ported from slopsmith
         // 1.39.1). startDrill(start, end, {label, focus, goal, speedLadder,
         // expandContext, maxExpansions}) arms a slowed A-B loop and steps the

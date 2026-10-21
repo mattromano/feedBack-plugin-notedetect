@@ -67,6 +67,8 @@ All settings are persisted in localStorage across sessions.
 
 Other plugins can pick the input device with `window.noteDetect.setDevice(deviceId)`: it persists the choice and restarts capture only if detection is already on.
 
+Band mode: `setScoreHudHidden(hidden)` (boolean, returns `false` for anything else) hides this instance's score HUD and flash overlay, and the end-of-song summary takes the gig path (the take is still credited, no overlay, no auto-exit hold). `isScoreHudHidden()` reads it back. It is never persisted.
+
 ## Scoring
 
 - Accuracy percentage displayed in the highway HUD (top right)
