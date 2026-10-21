@@ -15021,13 +15021,25 @@ function createNoteDetector(options = {}) {
         // In a gig, skip the overlay — but still credit the take, exactly as a
         // built summary would have (same _summaryWorthy() gate showSummary
         // applies), and still tear the detector down between songs.
-        if (_inGigSet() || scoreHudHidden) {
+        if (_inGigSet()) {
             try {
                 if (_summaryWorthy()) _submitSongXp();
             } catch (e) {
                 console.warn('[note_detect] gig-song XP failed:', e && e.message ? e.message : e);
             }
             try { disable({ silent: true }); } catch (e) { /* teardown is best-effort */ }
+            return;
+        }
+
+        // Band mode (Build-a-Band hid the score HUD, no gig): credit the take but
+        // leave the session exactly as the user had it — no summary, and NO
+        // disable(), so a user's Detect-ON survives the band song.
+        if (scoreHudHidden) {
+            try {
+                if (_summaryWorthy()) _submitSongXp();
+            } catch (e) {
+                console.warn('[note_detect] band-song XP failed:', e && e.message ? e.message : e);
+            }
             return;
         }
 

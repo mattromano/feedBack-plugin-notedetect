@@ -39,10 +39,24 @@ test('setScoreHudHidden toggles and refuses non-booleans', () => {
     assert.equal(det.isScoreHudHidden(), false);
 });
 
-test('the end-of-song summary takes the gig path while the score HUD is hidden', () => {
+test('a hidden score HUD takes its own branch: XP, no summary, no disable', () => {
     const fn = extractBlock(SRC, 'function _endOfSongOnEnded()');
-    assert.ok(fn.includes('_inGigSet() || scoreHudHidden'),
-        'the gig branch must also fire while the score HUD is hidden');
+    assert.ok(!fn.includes('_inGigSet() || scoreHudHidden'),
+        'the gig branch must not also fire for band mode (it disables detection)');
+    const at = fn.search(/if\s*\(\s*scoreHudHidden\s*\)/);
+    assert.ok(at !== -1, 'band branch not found');
+    const open = fn.indexOf('{', at);
+    let depth = 1, i = open + 1;
+    while (i < fn.length && depth > 0) {
+        if (fn[i] === '{') depth++;
+        else if (fn[i] === '}') depth--;
+        i++;
+    }
+    const body = fn.slice(open + 1, i - 1);
+    assert.match(body, /_summaryWorthy\s*\(\s*\)/);
+    assert.match(body, /_submitSongXp\s*\(\s*\)/);
+    assert.ok(!/disable\s*\(/.test(body), 'band mode must not disable detection');
+    assert.ok(!/showSummary\s*\(/.test(body), 'band mode must not build a summary');
 });
 
 test('plugin.css hides the HUD and the flash overlay', () => {

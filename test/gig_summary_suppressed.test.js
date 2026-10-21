@@ -51,7 +51,7 @@ test('the gig check runs BEFORE the summary is built', () => {
     assert.ok(gigIdx < summaryIdx,
         'the gig bail must come before showSummary — build it and claimAutoExit ' +
         'stalls the host queue, which is the bug');
-    assert.match(fn, /_inGigSet\s*\(\s*\)(?:\s*\|\|\s*scoreHudHidden)?\s*\)\s*\{[\s\S]{0,600}?\breturn;/,
+    assert.match(fn, /_inGigSet\s*\(\s*\)\s*\)\s*\{[\s\S]{0,600}?\breturn;/,
         'the gig path must RETURN out of the handler, not fall through');
 });
 
@@ -64,7 +64,7 @@ test('the gig check runs BEFORE the summary is built', () => {
 // can pass for the wrong reason is worse than no test.
 function gigBranch(src) {
     const fn = extractBlock(src, 'function _endOfSongOnEnded()');
-    const at = fn.search(/if\s*\(\s*_inGigSet\s*\(\s*\)(?:\s*\|\|\s*scoreHudHidden)?\s*\)/);
+    const at = fn.search(/if\s*\(\s*_inGigSet\s*\(\s*\)\s*\)/);
     assert.ok(at !== -1, 'gig guard not found');
     const open = fn.indexOf('{', at);
     let depth = 1, i = open + 1;
