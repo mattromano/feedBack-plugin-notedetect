@@ -4743,7 +4743,15 @@ function createNoteDetector(options = {}) {
             // first auto-enable attempt (a transient not-ready USB device
             // shouldn't pop a dialog on load — the retry surfaces it).
             if (enabled && !autoEnableTrial) {
-                alert('Note Detection: Could not access audio input.\n\n' + e.message);
+                // Announce the failure first; band mode (quietInputErrors)
+                // listens for this instead of taking a blocking alert.
+                dispatchInstanceEvent('notedetect:input-error', {
+                    message: e && e.message ? e.message : String(e),
+                    isDefault,
+                });
+                if (!quietInputErrors) {
+                    alert('Note Detection: Could not access audio input.\n\n' + e.message);
+                }
             }
             // Partial-init cleanup — if we got as far as acquiring the
             // stream or creating any AudioNodes before the throw, we
@@ -15075,6 +15083,15 @@ function createNoteDetector(options = {}) {
         return true;
     }
 
+    // Build-a-Band silences the blocking input-error alert and listens for
+    // notedetect:input-error instead. Not persisted.
+    let quietInputErrors = false;
+    function setInputErrorsQuiet(on) {
+        if (typeof on !== 'boolean') return false;
+        quietInputErrors = on;
+        return true;
+    }
+
     function _endOfSongOnEnded() {
         if (!isDefault) return;
         if (!enabled) return;
@@ -18538,6 +18555,8 @@ function createNoteDetector(options = {}) {
         setDevice,
         setScoreHudHidden,
         isScoreHudHidden: () => scoreHudHidden,
+        setInputErrorsQuiet,
+        isInputErrorsQuiet: () => quietInputErrors,
         // Drill conductor (speed/goal orchestrator, ported from slopsmith
         // 1.39.1). startDrill(start, end, {label, focus, goal, speedLadder,
         // expandContext, maxExpansions}) arms a slowed A-B loop and steps the

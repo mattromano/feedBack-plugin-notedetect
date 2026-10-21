@@ -69,6 +69,8 @@ Other plugins can pick the input device with `window.noteDetect.setDevice(device
 
 Band mode: `setScoreHudHidden(hidden)` (boolean, returns `false` for anything else) hides this instance's score HUD and flash overlay, and the end-of-song summary takes the gig path (the take is still credited, no overlay, no auto-exit hold). `isScoreHudHidden()` reads it back. It is never persisted.
 
+Band mode: `setInputErrorsQuiet(on)` (boolean, returns `false` for anything else) drops the blocking `alert()` when the audio input fails to start; listen for `notedetect:input-error` instead. `isInputErrorsQuiet()` reads it back (default `false`). It is never persisted.
+
 ## Scoring
 
 - Accuracy percentage displayed in the highway HUD (top right)
@@ -107,6 +109,7 @@ Other plugins can listen for these `window`-scoped `CustomEvent`s:
 | `notedetect:hit` | A chart note is classified as a clean hit | Full judgment object (includes legacy fields: `{ note, time, noteTime, expectedMidi, detectedMidi, confidence }`) |
 | `notedetect:miss` | A chart note's timing window expires **or** a matched-but-not-clean attempt is classified | Full judgment object (see field reference below) |
 | `notedetect:onset` | Any new note attack (only new attacks fire; a note ringing on never does) | `{ t, midi, confidence, level, source, isDefault }`: `t` is the chart time of the attack in seconds, input latency removed; `source` is `'engine'` (desktop engine onset, with `midi` and `confidence`) or `'level'` (input-level attack, with `level` on note_detect's 0–1 meter scale); unknown fields are `null`. One event per attack: onsets within 80 ms of the last one from the same source, or 150 ms from the other source, are merged. Under the desktop engine verifier only `source: 'level'` onsets are emitted. The first level reading after Detect starts only primes the level baseline. Dispatched twice like every notedetect event: on `window`, then bubbling from the instance root, sharing one detail object |
+| `notedetect:input-error` | The audio input failed to start (not on the automatic first enable, and not after a superseding disable). Fires whether or not `setInputErrorsQuiet` is on; the alert only shows when it is off. Dispatched twice like every notedetect event (window, then the instance root) | `{ message, isDefault }` |
 | `notedetect:session` | End of song | aggregate stats for the full run (see [Practice Journal plugin](https://github.com/got-feedback/feedback-plugin-practice) for a consumer) |
 
 When Slopsmith's event bus is available, the plugin also emits
