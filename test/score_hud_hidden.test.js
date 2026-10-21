@@ -49,3 +49,42 @@ test('plugin.css hides the HUD and the flash overlay', () => {
     assert.ok(CSS.includes('[data-nd-score-hidden="1"] .nd-hud'));
     assert.ok(CSS.includes('[data-nd-score-hidden="1"] .nd-flash-overlay'));
 });
+
+test('setScoreHudHidden sets and removes data-nd-score-hidden on the instance root', () => {
+    // Elements that keep their attributes, so the instance root can be read.
+    const made = [];
+    function recordingElement() {
+        const attrs = new Map();
+        const props = { style: {}, attrs };
+        const el = new Proxy(props, {
+            get: (t, prop) => {
+                if (prop in t) return t[prop];
+                if (prop === 'classList') return { add() {}, remove() {}, toggle() {}, contains: () => false };
+                if (prop === 'setAttribute') return (k, v) => { attrs.set(k, String(v)); };
+                if (prop === 'removeAttribute') return (k) => { attrs.delete(k); };
+                if (prop === 'getAttribute') return (k) => (attrs.has(k) ? attrs.get(k) : null);
+                if (prop === 'querySelector') return () => null;
+                if (prop === 'querySelectorAll') return () => [];
+                if (typeof prop === 'symbol') return undefined;
+                return () => {};
+            },
+            set: (t, prop, v) => { t[prop] = v; return true; },
+        });
+        made.push(el);
+        return el;
+    }
+    const core = loadDetectionCore({
+        sandboxBeforeRun: (sb) => { sb.document.createElement = recordingElement; },
+    });
+    const det = core.createNoteDetector({ isDefault: true });
+    const roots = made.filter((e) => e.className === 'nd-instance-root');
+    const root = roots.at(-1);
+    assert.ok(root, 'instance root created');
+    assert.equal(root.getAttribute('data-nd-score-hidden'), null);
+    det.setScoreHudHidden(true);
+    assert.equal(root.getAttribute('data-nd-score-hidden'), '1');
+    det.setScoreHudHidden('yes');
+    assert.equal(root.getAttribute('data-nd-score-hidden'), '1', 'a refused value leaves it');
+    det.setScoreHudHidden(false);
+    assert.equal(root.getAttribute('data-nd-score-hidden'), null);
+});
