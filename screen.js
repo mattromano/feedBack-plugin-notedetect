@@ -737,19 +737,25 @@ function _ndIsStreakMilestone(streak) {
 
 // notedetect:onset — a new note attack. A level attack is a jump of at least
 // x1.6 (+4 dB) to at least 0.05 on note_detect's rms*5 level scale, so a note
-// ringing on (decaying) never fires. One emitter per instance with an 80 ms
-// refractory merges an engine onset and a level attack of the same pick.
+// ringing on (decaying) never fires. One emitter per instance dedupes by
+// absolute distance from the last onset: 80 ms against the same source,
+// 150 ms across sources, so an engine onset (back-dated by its age, landing
+// on either side of the level attack) and a level attack of the same pick
+// give one event. A backward seek is far away, so it fires again.
 const _ND_ONSET_MIN_LEVEL = 0.05;
 const _ND_ONSET_RISE = 1.6;
 const _ND_ONSET_REFRACTORY_S = 0.08;
+const ND_ONSET_CROSS_SOURCE_S = 0.150;
 
 function _ndLevelOnset(prevLevel, level) {
     const prev = Number.isFinite(prevLevel) ? prevLevel : 0;
     return level >= _ND_ONSET_MIN_LEVEL && level >= prev * _ND_ONSET_RISE;
 }
 
-function _ndOnsetDue(lastT, t) {
-    return lastT == null || t < lastT || t - lastT >= _ND_ONSET_REFRACTORY_S;
+function _ndOnsetDue(lastT, t, lastSource, source) {
+    if (lastT == null) return true;
+    const minGap = source === lastSource ? _ND_ONSET_REFRACTORY_S : ND_ONSET_CROSS_SOURCE_S;
+    return Math.abs(t - lastT) >= minGap;
 }
 
 // Scoring-UI skin. One global preference shared by every instance (and read
@@ -3998,10 +4004,13 @@ function createNoteDetector(options = {}) {
     let bridgeOnsetSeqSeen = new Map();
     let bridgeNewOnsets = new Map();
     let bridgeOnsetPrimed = false;
-    // notedetect:onset state: chart time of the last emitted onset (the
-    // refractory) and the previous level reading (the level attack).
+    // notedetect:onset state: chart time and source of the last emitted onset
+    // (the dedupe window) and the previous level reading (the level attack).
+    // prevOnsetLevel is null until the first reading primes it, as
+    // bridgeOnsetPrimed does for engine onsets.
     let lastOnsetT = null;
-    let prevOnsetLevel = 0;
+    let lastOnsetSource = null;
+    let prevOnsetLevel = null;
 
     // Visual-feedback tracking
     let lastHitCount = 0;
@@ -4518,6 +4527,9 @@ function createNoteDetector(options = {}) {
                                             ageMs,
                                             conf: n.confidence,
                                         });
+                                        // notedetect:onset source 'engine'. The engine-verifier
+                                        // branch returns before this loop, so under the engine
+                                        // verifier only source 'level' onsets are emitted.
                                         if (hw && typeof hw.getTime === 'function') {
                                             const avOffsetSec = hw.getAvOffset ? hw.getAvOffset() / 1000 : 0;
                                             _ndEmitOnset(hw.getTime() + avOffsetSec - latencyOffset - ageMs / 1000,
@@ -4965,7 +4977,8 @@ function createNoteDetector(options = {}) {
         bridgeNewOnsets = new Map();
         bridgeOnsetPrimed = false;
         lastOnsetT = null;
-        prevOnsetLevel = 0;
+        lastOnsetSource = null;
+        prevOnsetLevel = null;
         // Disconnect the full node chain in reverse-connect order.
         // Critical in borrower mode (external audioCtx): we leave the
         // caller's context open, and any node we don't disconnect
@@ -5160,7 +5173,7 @@ function createNoteDetector(options = {}) {
                         _ndLevelSamples.length = 0;
                     }
                     _ndLevelSamples.push({ songT, level: inputLevel });
-                    if (_ndLevelOnset(prevOnsetLevel, inputLevel)) {
+                    if (prevOnsetLevel != null && _ndLevelOnset(prevOnsetLevel, inputLevel)) {
                         _ndEmitOnset(songT - latencyOffset, { level: inputLevel, source: 'level' });
                     }
                     prevOnsetLevel = inputLevel;
@@ -5329,7 +5342,7 @@ function createNoteDetector(options = {}) {
             const last = _ndLevelSamples.length ? _ndLevelSamples[_ndLevelSamples.length - 1].songT : -Infinity;
             if (songT < last - 0.05) _ndLevelSamples.length = 0;   // seek / drill-wrap → reset
             _ndLevelSamples.push({ songT, level: lvl });
-            if (_ndLevelOnset(prevOnsetLevel, lvl)) {
+            if (prevOnsetLevel != null && _ndLevelOnset(prevOnsetLevel, lvl)) {
                 _ndEmitOnset(songT - latencyOffset, { level: lvl, source: 'level' });
             }
             prevOnsetLevel = lvl;
@@ -5648,12 +5661,13 @@ function createNoteDetector(options = {}) {
     }
 
     // notedetect:onset — any new note attack, at chart time `t` with input
-    // latency removed. Engine onsets and level attacks share the refractory.
+    // latency removed. Engine onsets and level attacks share one dedupe window.
     function _ndEmitOnset(t, fields) {
         if (!enabled || !Number.isFinite(t)) return;
         const { midi = null, confidence = null, level = null, source } = fields || {};
-        if (!_ndOnsetDue(lastOnsetT, t)) return;
+        if (!_ndOnsetDue(lastOnsetT, t, lastOnsetSource, source)) return;
         lastOnsetT = t;
+        lastOnsetSource = source;
         dispatchInstanceEvent('notedetect:onset', { t, midi, confidence, level, source, isDefault });
     }
 
