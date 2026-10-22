@@ -1,4 +1,4 @@
-// Public setDevice(deviceId): lets other plugins (Build-a-Band) pick the input
+// Public setDevice(deviceId): lets other plugins (RockHeroSmith) pick the input
 // device without the gear popover. Persists for the default instance and never
 // opens the mic while detection is off.
 

@@ -40,3 +40,6 @@ get the per-string detail they used to patch `screen.js` for.
   `latencyMs`, `avOffsetMs`, `detector`, `section`, `counted`, `points`, `multiplier`, `streak`,
   `isDefault`, and `verdictAt` / `noteEnd` so a renderer can still flash a hit whose verdict landed
   after the gem was culled. See README "Events".
+
+### Changed
+- Docs and tests name RockHeroSmith (formerly Build-a-Band; screen `plugin-rockherosmith`).

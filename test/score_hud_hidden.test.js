@@ -1,4 +1,4 @@
-// setScoreHudHidden(): Build-a-Band's band HUD replaces note_detect's own score
+// setScoreHudHidden(): RockHeroSmith's band HUD replaces note_detect's own score
 // HUD and end-of-song summary. Never persisted; per instance.
 
 const { test } = require('node:test');

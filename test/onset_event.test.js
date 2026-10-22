@@ -1,4 +1,4 @@
-// notedetect:onset: a public event for any new note attack (Build-a-Band's
+// notedetect:onset: a public event for any new note attack (RockHeroSmith's
 // "Noodle it up" counts these). Two sources share one emitter with an 80 ms
 // refractory: the desktop engine's fresh onsets and a level attack at both
 // level-history sites.

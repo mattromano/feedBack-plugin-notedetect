@@ -12285,7 +12285,7 @@ function createNoteDetector(options = {}) {
         restartAudio();
     }
 
-    // Public: choose the input device programmatically (e.g. Build-a-Band's
+    // Public: choose the input device programmatically (e.g. RockHeroSmith's
     // setup screen). Same path as the gear popover's device dropdown, but only
     // restarts capture when detection is already running, so it never opens
     // the mic while detection is off.
@@ -15071,7 +15071,7 @@ function createNoteDetector(options = {}) {
         try { return q.active() && q.source() === 'gig'; } catch (_) { return false; }
     }
 
-    // Build-a-Band hides the score HUD and the end summary (band mode). Not persisted.
+    // RockHeroSmith hides the score HUD and the end summary (band mode). Not persisted.
     let scoreHudHidden = false;
     function setScoreHudHidden(hidden) {
         if (typeof hidden !== 'boolean') return false;
@@ -15083,7 +15083,7 @@ function createNoteDetector(options = {}) {
         return true;
     }
 
-    // Build-a-Band silences the blocking input-error alert and listens for
+    // RockHeroSmith silences the blocking input-error alert and listens for
     // notedetect:input-error instead. Not persisted.
     let quietInputErrors = false;
     function setInputErrorsQuiet(on) {
@@ -15109,7 +15109,7 @@ function createNoteDetector(options = {}) {
             return;
         }
 
-        // Band mode (Build-a-Band hid the score HUD, no gig): credit the take but
+        // Band mode (RockHeroSmith hid the score HUD, no gig): credit the take but
         // leave the session exactly as the user had it — no summary, and NO
         // disable(), so a user's Detect-ON survives the band song.
         if (scoreHudHidden) {

@@ -1019,5 +1019,5 @@ body:has(#v3-upnext) .nd-hud {
     .nd-toast { transition: opacity 0.25s ease; transform: translate(-50%, 0); }
 }
 
-/* Build-a-Band: the band HUD replaces the score HUD (setScoreHudHidden). */
+/* RockHeroSmith: the band HUD replaces the score HUD (setScoreHudHidden). */
 [data-nd-score-hidden="1"] .nd-hud, [data-nd-score-hidden="1"] .nd-flash-overlay { display: none !important; }
