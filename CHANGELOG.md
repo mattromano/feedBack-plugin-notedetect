@@ -1,5 +1,13 @@
 # Changelog
 
+## [Unreleased] - 1.33.1
+
+### Fixed
+
+- A/V auto-calibrate leaves a locked offset alone (set by hand, or applied by the main menu's Calibrate; core's `isAvOffsetLocked()`): no sweep at song end. When core ignores the write anyway, it no longer logs "A/V auto-calibrated" or fires `notedetect:calibrated` for a change that never happened.
+- The Auto-tune panel's A/V Apply passes `'manual'`, so it works on a locked offset instead of silently doing nothing.
+- Settings: the Auto-calibrate toggle says when the offset is locked.
+
 ## [Unreleased] - 1.33.0
 
 Guitar scoring accuracy: notes the player got right no longer score as misses, and stats plugins

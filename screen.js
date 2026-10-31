@@ -316,7 +316,7 @@ const _ND_AUTO_ENABLE_RETRY_MS = 1500;
 // exact build that produced it. The script tag has no `import`/`fetch`
 // hook to read package.json at load time, so this is the single
 // hand-maintained constant the diagnostic path keys off of.
-const _ND_VERSION = '1.33.0';
+const _ND_VERSION = '1.33.1';
 
 // Bleed-rescue tuning for the low-bass blind spot. A bass DI's fundamental is
 // weaker than its 2nd harmonic and an open string / neighbour often rings the
@@ -17135,6 +17135,9 @@ function createNoteDetector(options = {}) {
     }
     function _ndRunAutoCalibrate() {
         if (!autoCalibrate) return 'autoCalibrate off';
+        // The A/V offset was set by hand or applied by Calibrate (core's
+        // isAvOffsetLocked): leave it alone, don't even sweep.
+        try { if (typeof window.isAvOffsetLocked === 'function' && window.isAvOffsetLocked()) return 'locked (A/V set by hand)'; } catch (_) { /* older core */ }
         if (!isDefault) return 'not default';
         // The cal listeners deliberately survive disable() (the host disables
         // detection at song-end, sometimes before song:ended fires), so guard
@@ -17153,7 +17156,12 @@ function createNoteDetector(options = {}) {
         _calDoneThisPlay = true;
         _lastAvCalibration = r;
         try {
-            window.setAvOffsetMs(r.offsetMs);
+            // Core returns false when it ignored the change (the offset is
+            // locked): then nothing was calibrated, so say nothing.
+            if (window.setAvOffsetMs(r.offsetMs) === false) {
+                _lastAvCalibration = Object.assign({}, r, { ignored: true });
+                return 'ignored: A/V set by hand';
+            }
             console.log(`[note_detect] A/V auto-calibrated to ${r.offsetMs} ms (${r.matched}/${r.total} notes matched)`);
             // Dispatch on the normal detector event path (window + instanceRoot),
             // matching notedetect:verify/notedetect:session, so consumers that
