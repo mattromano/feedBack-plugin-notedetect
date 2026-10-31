@@ -11,6 +11,8 @@ get the per-string detail they used to patch `screen.js` for.
 
 ### Fixed
 
+- Detect no longer re-arms on a drum part (a Drums arrangement, Play as Drums, a RockHeroSmith drum solo): the guitar input stays closed and the "not hearing your instrument" banner doesn't show. It stops quietly if it was on, and the next guitar part re-arms as usual.
+
 - **Capo charts** (#73): fretted notes are read from the nut, the Rocksmith way (a capo-4 E chord
   is `A7 D6 G0 B5`); only fret 0 sounds at the capo. Expected pitch used to add the capo to every
   fret, so capo charts barely scored. Covers the browser detector, the desktop engine (both the
