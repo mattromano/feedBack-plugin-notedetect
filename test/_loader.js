@@ -259,6 +259,7 @@ function loadDetectionCore({ sandboxBeforeRun } = {}) {
         midiToStringFret: midiToStringFretWrapped,
         resolveDisplayFingering: resolveDisplayFingeringWrapped,
         nearestOctaveCents: sandbox._ndNearestOctaveCents,
+        isDrumPart: sandbox._ndIsDrumPart,
         // Effective-tuning helpers (chart-transform / centOffset follow).
         rawMidiFromStringFret: sandbox._ndMidiFromStringFret,
         refShiftCents: sandbox._ndRefShiftCents,

@@ -863,6 +863,17 @@ function _ndPickHeroAction(ctx) {
 // Mirrors the robust host-checked fallback ladder used elsewhere in the
 // ecosystem: image→clipboard → download PNG → text.
 
+// The highway's loaded part is a drum part (by name or `type`): note
+// detection has nothing to listen for there. songInfo is getSongInfo().
+function _ndIsDrumPart(songInfo) {
+    if (!songInfo || typeof songInfo !== 'object') return false;
+    const drum = /\b(?:drums?|percussion)\b/i;
+    if (typeof songInfo.arrangement === 'string' && drum.test(songInfo.arrangement)) return true;
+    const list = Array.isArray(songInfo.arrangements) ? songInfo.arrangements : [];
+    const arr = list.find((a) => a && a.index === songInfo.arrangement_index);
+    return !!(arr && (drum.test(String(arr.name || '')) || String(arr.type || '').toLowerCase() === 'drums'));
+}
+
 // Human label for an arrangement string (the "instrument / track" played).
 // getSongInfo().arrangement is a free-form chart label ('Lead', 'Bass',
 // 'rhythm', …) — title-case the leading word so it reads on the card.
@@ -15294,6 +15305,14 @@ function createNoteDetector(options = {}) {
         // player singleton must stay off — otherwise it re-arms here on every song
         // load and renders a second HUD on top of P1. Splitscreen sets this flag.
         if (typeof window !== 'undefined' && window.__ndSuppressDefault) return;
+        // A drum part has nothing for the guitar input to detect: don't open the
+        // mic for it (and stop quietly if Detect was already on). The standing
+        // preference stays, so the next guitar part re-arms as usual.
+        const h = resolveHw();
+        if (_ndIsDrumPart(h && typeof h.getSongInfo === 'function' ? h.getSongInfo() : null)) {
+            if (enabled) disable({ silent: true });
+            return;
+        }
         if (enabled) return;
         if (!detectPreference) return;
         enable().catch((e) => {
