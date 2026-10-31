@@ -4845,6 +4845,12 @@ function createNoteDetector(options = {}) {
         if (scoringWatchdog && typeof scoringWatchdog.unref === 'function') scoringWatchdog.unref();
     }
 
+    // The highway's loaded part is a drum part (_ndIsDrumPart on its song info).
+    function _ndOnDrumPart() {
+        const h = resolveHw();
+        return _ndIsDrumPart(h && typeof h.getSongInfo === 'function' ? h.getSongInfo() : null);
+    }
+
     function _scoringWatchdogTick() {
         const now = (typeof Date !== 'undefined' && Date.now) ? Date.now() : 0;
         // In split mode the default singleton is suppressed — a panel owns
@@ -4857,6 +4863,12 @@ function createNoteDetector(options = {}) {
         const playing = !!(window.slopsmith && window.slopsmith.isPlaying);
         // Only meaningful while playing AND the user wants detection on.
         if (!playing || !detectPreference) { _wdPlayStartT = 0; _clearScoringStall(); return; }
+        // A drum part has nothing to detect: no banner, no re-enable (see _reArmOnSongLoaded).
+        if (_ndOnDrumPart()) {
+            _wdPlayStartT = 0; _clearScoringStall();
+            if (enabled) disable({ silent: true });
+            return;
+        }
         if (!_wdPlayStartT) { _wdPlayStartT = now; _maxCbGapMs = 0; }  // fresh play: reset starvation gauge
         // Grace: let enable()/startAudio come up after Play before judging.
         if (now - _wdPlayStartT < 2500) return;
@@ -15308,8 +15320,7 @@ function createNoteDetector(options = {}) {
         // A drum part has nothing for the guitar input to detect: don't open the
         // mic for it (and stop quietly if Detect was already on). The standing
         // preference stays, so the next guitar part re-arms as usual.
-        const h = resolveHw();
-        if (_ndIsDrumPart(h && typeof h.getSongInfo === 'function' ? h.getSongInfo() : null)) {
+        if (_ndOnDrumPart()) {
             if (enabled) disable({ silent: true });
             return;
         }
