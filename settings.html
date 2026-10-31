@@ -173,6 +173,9 @@
                 <span class="block text-[11px] text-gray-500 leading-relaxed mt-1">
                     On by default. After each play, picks the audio/video offset that matches the most chart notes and applies it automatically — no hand-setting the A/V slider. One play is usually enough to converge.
                 </span>
+                <span id="nd-auto-calibrate-locked" class="hidden block text-[11px] text-amber-400 leading-relaxed mt-1">
+                    Locked: the A/V offset was set by hand or by Calibrate (main menu), so auto-calibrate leaves it alone.
+                </span>
             </span>
         </label>
     </div>
@@ -442,7 +445,9 @@
             actionable,
             apply: () => {
                 if (!actionable || typeof window.setAvOffsetMs !== 'function') return;
-                window.setAvOffsetMs(suggested);
+                // A user click: 'manual', so core applies it even when the
+                // offset is locked (and keeps it locked).
+                window.setAvOffsetMs(suggested, false, 'manual');
                 _resetAfterApply(nd, 'av');
             },
         };
@@ -814,6 +819,9 @@
         const autoCalCb = _q('nd-auto-calibrate');
         if (autoCalCb && autoCalCb.checked !== autoCal) autoCalCb.checked = autoCal;
         if (autoCalCb) autoCalCb.disabled = !nd;
+        const autoCalLock = _q('nd-auto-calibrate-locked');
+        const avLocked = typeof window.isAvOffsetLocked === 'function' && !!window.isAvOffsetLocked();
+        if (autoCalLock) autoCalLock.classList.toggle('hidden', !avLocked);
 
         // Scoring HUD skin select — value sourced from the plugin so it
         // stays in sync if another surface (or another tab) switched it.
