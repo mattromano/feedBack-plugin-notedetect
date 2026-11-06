@@ -87,7 +87,7 @@ test('filename-derived label strips .feedpak as well as legacy .sloppak', () => 
         'both current .feedpak and legacy .sloppak extensions are stripped');
 });
 
-test('_ndQueueDelaySeconds: default 10, manual value, 0 allowed, junk rejected', () => {
+test('_ndQueueDelaySeconds: default 3, manual value, 0 allowed, junk rejected', () => {
     const m = SRC.match(/function _ndQueueDelaySeconds\(\) \{[\s\S]*?\n\}/);
     assert.ok(m, 'helper found');
     const store = {};
@@ -96,13 +96,13 @@ test('_ndQueueDelaySeconds: default 10, manual value, 0 allowed, junk rejected',
     };
     // eslint-disable-next-line no-new-func
     const fn = new Function('localStorage', m[0] + '; return _ndQueueDelaySeconds;')(localStorage);
-    assert.equal(fn(), 10);                              // unset → default
+    assert.equal(fn(), 3);                               // unset → default
     store.slopsmith_notedetect_queue_delay = '25';
     assert.equal(fn(), 25);                              // manual value
     store.slopsmith_notedetect_queue_delay = '0';
     assert.equal(fn(), 0);                               // 0 = instant advance
     store.slopsmith_notedetect_queue_delay = '-5';
-    assert.equal(fn(), 10);                              // junk → default
+    assert.equal(fn(), 3);                               // junk → default
     store.slopsmith_notedetect_queue_delay = 'soon';
-    assert.equal(fn(), 10);
+    assert.equal(fn(), 3);
 });

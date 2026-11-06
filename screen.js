@@ -917,12 +917,13 @@ function _ndAutoSaveEnabled() {
 // Queue auto-advance delay (seconds) between a queued song's results card and
 // the next track starting. A plain manual number (the tester ask — presets
 // felt limiting): 0 = advance immediately, anything larger counts down
-// visibly on the card. Default 10 s; settings.html writes the key.
+// visibly on the card. Default 3 s (was 10 s, which made a plain
+// queue feel stalled between songs); settings.html writes the key.
 function _ndQueueDelaySeconds() {
     try {
         const v = parseFloat(localStorage.getItem('slopsmith_notedetect_queue_delay'));
-        return (Number.isFinite(v) && v >= 0) ? v : 10;
-    } catch (e) { return 10; }
+        return (Number.isFinite(v) && v >= 0) ? v : 3;
+    } catch (e) { return 3; }
 }
 
 // Auto-drill threshold: jump into a drill loop after this many CONTIGUOUS missed
