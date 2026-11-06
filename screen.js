@@ -1722,6 +1722,32 @@ function _ndMinAnalysisSamples(arrangement, sampleRate) {
     return Math.max(_ND_MIN_YIN_SAMPLES, need);
 }
 
+// ── Input calibration vs per-tone input gain (desktop) ───────────────────
+// The input-level wizard's result is written to the SHARED engine input gain —
+// the same stage a desktop tone preset sets (applyPresetGainLevels). Re-
+// asserting the calibration on every startup / Detect enable silently replaced
+// a tone's own input level (e.g. a high-gain lead preset's +4 dB push became
+// the wizard's -6 dB on every song), starving the amp. A tone that sets its own
+// input level now wins over the automatic re-asserts; running the wizard (a
+// deliberate user action) still applies its result.
+//
+// The tone's input level, in dB, from the desktop Audio Engine's input-gain
+// control, which applyPresetGainLevels keeps in step with the loaded tone.
+// null when there is no such control (browser app, or the panel isn't built).
+function _ndToneInputGainDb(doc) {
+    const el = doc && typeof doc.getElementById === 'function' ? doc.getElementById('ae-input-gain') : null;
+    if (!el) return null;
+    const db = parseFloat(el.value);
+    return Number.isFinite(db) ? db : null;
+}
+// Re-assert the calibrated gain? Always when forced (the wizard), never when
+// uncalibrated, and otherwise only while the tone leaves input at unity (0 dB).
+function _ndShouldApplyEngineGain(calibratedGain, force, toneInputDb) {
+    if (calibratedGain == null) return false;
+    if (force) return true;
+    return !(toneInputDb != null && Math.abs(toneInputDb) > 0.05);
+}
+
 // ── A/V auto-calibration ──────────────────────────────────────────────
 // The harness objective made concrete in-app. Given offset-free detections
 // (`{ bt, m }`: bt = hw.getTime() − latencyOffset, m = detected MIDI) logged
@@ -3718,8 +3744,9 @@ function createNoteDetector(options = {}) {
     }
     // Re-assert the calibrated engine input gain (the wizard's result). No-op
     // until the user calibrates, or off-desktop.
-    function _ndApplyEngineGain() {
-        if (engineInputGain == null) return false;
+    function _ndApplyEngineGain(force) {
+        const toneDb = (typeof document !== 'undefined') ? _ndToneInputGainDb(document) : null;
+        if (!_ndShouldApplyEngineGain(engineInputGain, !!force, toneDb)) return false;
         return _ndSetEngineGain(engineInputGain);
     }
     // True only when the addon exposes the FULL source-indexed scoring API this
@@ -8851,7 +8878,7 @@ function createNoteDetector(options = {}) {
             // web gainNode above only affects browser analysis). Persisted +
             // re-applied on enable so the calibration survives restarts.
             engineInputGain = inputGain;
-            _ndApplyEngineGain();
+            _ndApplyEngineGain(true);   // the wizard: a deliberate calibration always applies
             applied.inputGain = inputGain;
         }
         if (wiz.applyChecked.latencyOffset && Number.isFinite(rec.latencyOffset)) {
@@ -9279,7 +9306,7 @@ function createNoteDetector(options = {}) {
         // off unity to the measured target right after capture, so a never-calibrated
         // cancel isn't left hot here; this is the backstop for an applied/prior value.
         // No-op when never calibrated (engineInputGain == null).
-        _ndApplyEngineGain();
+        _ndApplyEngineGain(true);   // wizard close: re-assert the just-applied value
         _calWizardStopTimedPlayAlong('close');
         _calWizardReleaseTuner();
         if (_calWizardTick) {

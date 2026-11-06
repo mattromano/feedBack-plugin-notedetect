@@ -187,6 +187,7 @@ function loadDetectionCore({ sandboxBeforeRun } = {}) {
         '_ndMidiFromStringFret', '_ndMidiToStringFret',
         '_ndResolveDisplayFingering', '_ndNearestOctaveCents',
         '_ndCalibrateOffsetMs',
+        '_ndToneInputGainDb', '_ndShouldApplyEngineGain',
         '_ndStringBandHz', '_ndBandEnergy',
         '_ndConstraintCheckString', '_ndScoreChord',
         '_ndClassifyTiming', '_ndClassifyPitch', '_ndMakeJudgment',
@@ -259,6 +260,8 @@ function loadDetectionCore({ sandboxBeforeRun } = {}) {
         midiToStringFret: midiToStringFretWrapped,
         resolveDisplayFingering: resolveDisplayFingeringWrapped,
         nearestOctaveCents: sandbox._ndNearestOctaveCents,
+        _ndToneInputGainDb: sandbox._ndToneInputGainDb,
+        _ndShouldApplyEngineGain: sandbox._ndShouldApplyEngineGain,
         isDrumPart: sandbox._ndIsDrumPart,
         // Effective-tuning helpers (chart-transform / centOffset follow).
         rawMidiFromStringFret: sandbox._ndMidiFromStringFret,
