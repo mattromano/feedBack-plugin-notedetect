@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased] - 1.33.2
+
+### Fixed
+
+- Desktop engine: a hit the engine couldn't match to a pick attack (palm mutes, fast runs, legato) no longer counts as exactly 0 ms. Those fake zeros swamped the timing stats and Calibrate (Sync Lab), so a badly offset setup still measured "on time". These hits still score, but their timing is now unknown (`timingError: null`, `timingUnknown: true`), and chords use a member's measured attack when one has it. This needs a desktop engine that reports `verdict.timed`; older engines behave as before.
+
 ## [Unreleased] - 1.33.1
 
 ### Fixed

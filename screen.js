@@ -14490,6 +14490,7 @@ function createNoteDetector(options = {}) {
                     cn, cn.t, judgedAt, expectedMidi, detectedMidiForJudgment, 1,
                     { pitchError, pitchThresholdCents: lenientPitch ? 600 : undefined }
                 );
+                if (v.timed === false) _ndMarkUntimed(judgment);
                 judgment.strings = _ndStringVerdicts([{
                     s: cn.s, f: cn.f, detected: true, centsError: v.centsError,
                     snr: v.snr, detectedAt: v.detectedSongTime,
@@ -14592,10 +14593,26 @@ function createNoteDetector(options = {}) {
     // leniency) — power-chord constituents share harmonics, so demanding
     // every string would reject chords that clearly rang. Emits one chord
     // judgment (chord:true), mirroring the legacy chord path.
+    // The desktop engine stamps a hit it could not match to a pick attack
+    // (legato, or an attack its onset detector missed — palm mutes, fast runs)
+    // at the CHART time, flagged verdict.timed === false. That reads as exactly
+    // 0 ms — on time by construction, not by measurement — and flooded the
+    // timing stats and Sync Lab with fake zeros, so a badly offset rig still
+    // "measured" on time. The hit still counts; its timing is unknown, so it is
+    // reported as null (the same as a miss) and every timing consumer skips it.
+    // A downlevel engine without the flag (undefined) keeps the old behaviour.
+    function _ndMarkUntimed(judgment) {
+        if (!judgment || !judgment.hit) return judgment;
+        judgment.timingError = null;
+        judgment.timingUnknown = true;
+        return judgment;
+    }
+
     function _ndFinalizeChordVerdict(chordKey, grp, verdictMap) {
         if (_ndAlreadyCounted(chordKey)) return;
         let hitStrings = 0;
         let detectedTime = null;   // onset-derived time from a struck string
+        let detectedTimed = false; // that stamp is a measured pick attack (verdict.timed)
         let bestCents = null;
         for (const id of grp.memberIds) {
             const v = verdictMap.get(id);
@@ -14606,10 +14623,15 @@ function createNoteDetector(options = {}) {
                 // shape a string still ringing from the previous chord is
                 // "detected" as soon as this chord's window opens, while the
                 // others land on the strum.
+                // The closest stamp wins even when it is an untimed one (the
+                // chart time): in a run of the same chord a "measured" attack can
+                // be the PREVIOUS strum, and preferring it judged the chord EARLY
+                // and broke streaks. Only the reported timing follows the winner.
                 const ts = v.detectedSongTime;
                 if (Number.isFinite(ts) && (detectedTime === null
                     || Math.abs(ts - grp.t) < Math.abs(detectedTime - grp.t))) {
                     detectedTime = ts;
+                    detectedTimed = v.timed !== false;
                 }
                 if (bestCents === null && Number.isFinite(v.centsError)) bestCents = v.centsError;
             }
@@ -14643,11 +14665,13 @@ function createNoteDetector(options = {}) {
         const chordIsHit = score >= chordHitRatio && detectedTime !== null;
         if (chordIsHit) {
             const detMidi = Number.isFinite(bestCents) ? expectedMidi + bestCents / 100 : null;
-            recordJudgment(chordKey, makeMatchedJudgment(
+            const chordJudgment = makeMatchedJudgment(
                 lead, grp.t, detectedTime, expectedMidi, detMidi, 1,
                 { chord: true, notes: grp.memberNotes, hitStrings, totalStrings,
                   score, pitchError: bestCents, lateGraceMs, strings }
-            ));
+            );
+            if (!detectedTimed) _ndMarkUntimed(chordJudgment);
+            recordJudgment(chordKey, chordJudgment);
         } else {
             // Match the legacy chord-miss path: judgedAt is the current
             // corrected playhead (matchChords' `t`, not the chord's chart
