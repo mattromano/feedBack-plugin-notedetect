@@ -38,10 +38,10 @@ test('single-note engine hits are marked only on an explicit timed === false', (
     assert.match(SRC, /const judgment = makeMatchedJudgment\([\s\S]{0,200}?\);\s*if \(v\.timed === false\) _ndMarkUntimed\(judgment\);/);
 });
 
-test('a chord prefers a measured attack and is untimed only when no member was timed', () => {
+test('a chord keeps the closest stamp; its timing is unknown only when that stamp was untimed', () => {
     const body = fnSource('_ndFinalizeChordVerdict');
-    assert.match(body, /const vTimed = v\.timed !== false;/);
-    assert.match(body, /if \(!vTimed && detectedTimed\)/);
+    assert.match(body, /detectedTime = ts;\s*detectedTimed = v\.timed !== false;/);
+    assert.doesNotMatch(body, /if \(!vTimed && detectedTimed\)/, 'a measured attack must not override a closer stamp');
     assert.match(body, /if \(!detectedTimed\) _ndMarkUntimed\(chordJudgment\);\s*recordJudgment\(chordKey, chordJudgment\);/);
 });
 

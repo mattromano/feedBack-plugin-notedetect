@@ -14612,32 +14612,26 @@ function createNoteDetector(options = {}) {
         if (_ndAlreadyCounted(chordKey)) return;
         let hitStrings = 0;
         let detectedTime = null;   // onset-derived time from a struck string
-        let detectedTimed = false; // that time is a measured pick attack (verdict.timed)
+        let detectedTimed = false; // that stamp is a measured pick attack (verdict.timed)
         let bestCents = null;
         for (const id of grp.memberIds) {
             const v = verdictMap.get(id);
             if (v && v.detected) {
                 hitStrings++;
-                // A measured attack always beats an untimed stamp (the chart
-                // time, by construction): only the former says when you played.
-                const vTimed = v.timed !== false;
-                if (vTimed && !detectedTimed && Number.isFinite(v.detectedSongTime)) {
-                    detectedTime = null;
-                    detectedTimed = true;
-                }
-                if (!vTimed && detectedTimed) {
-                    if (bestCents === null && Number.isFinite(v.centsError)) bestCents = v.centsError;
-                    continue;
-                }
                 // Stamp the chord with the member detected closest to the
                 // chart time, not the first one listed. In a fast run of one
                 // shape a string still ringing from the previous chord is
                 // "detected" as soon as this chord's window opens, while the
                 // others land on the strum.
+                // The closest stamp wins even when it is an untimed one (the
+                // chart time): in a run of the same chord a "measured" attack can
+                // be the PREVIOUS strum, and preferring it judged the chord EARLY
+                // and broke streaks. Only the reported timing follows the winner.
                 const ts = v.detectedSongTime;
                 if (Number.isFinite(ts) && (detectedTime === null
                     || Math.abs(ts - grp.t) < Math.abs(detectedTime - grp.t))) {
                     detectedTime = ts;
+                    detectedTimed = v.timed !== false;
                 }
                 if (bestCents === null && Number.isFinite(v.centsError)) bestCents = v.centsError;
             }

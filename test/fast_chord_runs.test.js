@@ -80,7 +80,7 @@ async function driveUntil(intervals, pred) {
     return pred();
 }
 
-async function judgeEngineChord(stamps) {
+async function judgeEngineChord(stamps, timed = []) {
     const env = engineSandbox();
     const det = env.createNoteDetector({ isDefault: false });
     await det.enable();
@@ -90,6 +90,7 @@ async function judgeEngineChord(stamps) {
     const ids = env.ids();
     env.verdictQueue.push(ids.map((id, i) => ({
         id, detected: true, detectedSongTime: stamps[i], centsError: 0, snr: 6,
+        ...(typeof timed[i] === 'boolean' ? { timed: timed[i] } : {}),
     })));
     // Every interval gets a turn; the detect tick drains the verdicts.
     await driveUntil(env.intervals, () => det.getStats().hits + det.getStats().misses > 0);
@@ -108,6 +109,25 @@ test('engine verifier: a chord is stamped with the member detected closest to th
     assert.equal(stats.misses, 0);
     assert.ok(chordJ, 'a chord judgment was emitted');
     assert.equal(chordJ.timingError, -20, 'timing comes from the closest member');
+});
+
+test('engine verifier: a repeated chord is not judged EARLY off the previous strum', async () => {
+    // Same shape again: the low string's "measured" attack is the previous strum
+    // (170 ms early); the other string has no attack of its own, so the engine
+    // stamps it at the chart time (timed: false). The closest stamp still wins —
+    // preferring the measured one broke streaks on every repeated chord.
+    const { stats, chordJ } = await judgeEngineChord([CHORD_T - 0.17, CHORD_T], [true, false]);
+    assert.equal(stats.hits, 1, 'the chord should count as a hit');
+    assert.equal(stats.misses, 0);
+    assert.equal(chordJ.timingError, null, 'the winning stamp was untimed: no fake 0 ms');
+    assert.equal(chordJ.timingUnknown, true);
+});
+
+test('engine verifier: a timed closest member still reports its real timing', async () => {
+    const { stats, chordJ } = await judgeEngineChord([CHORD_T - 0.17, CHORD_T - 0.02], [false, true]);
+    assert.equal(stats.hits, 1);
+    assert.equal(chordJ.timingError, -20);
+    assert.notEqual(chordJ.timingUnknown, true);
 });
 
 test('engine verifier: a chord verified at the early window edge counts as on time', async () => {
