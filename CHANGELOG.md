@@ -1,5 +1,13 @@
 # Changelog
 
+## [Unreleased] - 1.33.3
+
+### Fixed
+
+- Calibration wizard, input channel auto-detect: it now tries every input the desktop engine reports, not just Mono / Ch 1 / Ch 2. With ASIO4ALL and both a USB headset and a guitar cable enabled, the headset mic is Ch 1/2 and the guitar is Ch 3, so the probe never heard the guitar.
+- The auto-detect puts the original input channel back when it finds no clear winner, gets cancelled or fails. It used to leave the engine on the last channel it tried, silencing the guitar.
+- `_ND_VERSION` matches the package version again (it stayed at 1.33.1 in 1.33.2).
+
 ## [Unreleased] - 1.33.2
 
 ### Fixed
