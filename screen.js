@@ -316,7 +316,7 @@ const _ND_AUTO_ENABLE_RETRY_MS = 1500;
 // exact build that produced it. The script tag has no `import`/`fetch`
 // hook to read package.json at load time, so this is the single
 // hand-maintained constant the diagnostic path keys off of.
-const _ND_VERSION = '1.33.1';
+const _ND_VERSION = '1.33.3';
 
 // Bleed-rescue tuning for the low-bass blind spot. A bass DI's fundamental is
 // weaker than its 2nd harmonic and an open string / neighbour often rings the
@@ -8944,14 +8944,84 @@ function createNoteDetector(options = {}) {
 
     function _calWizardEngineChannelLabel(ch) {
         const opt = _CAL_WIZARD_INPUT_CHANNEL_OPTIONS.find((o) => o.ch === ch);
-        return opt ? opt.label : `Channel ${ch}`;
+        if (opt) return opt.label;
+        return Number.isInteger(ch) && ch >= 0 ? `Input ${ch + 1} / Ch ${ch + 1}` : `Channel ${ch}`;
     }
 
     function _calWizardEngineChannelDisplayLabel(ch) {
         if (ch === 0) return 'Left (Ch 1)';
         if (ch === 1) return 'Right (Ch 2)';
+        if (Number.isInteger(ch) && ch >= 2) return `Ch ${ch + 1}`;
         return 'Default / Mono Mix';
     }
+
+    // Channels the auto-detect tries. The fixed Mono/Ch 1/Ch 2 list only fits a
+    // two-input device: with an aggregate driver (ASIO4ALL with a USB headset
+    // and a guitar cable both enabled) the first pair is the headset mic and
+    // the guitar is Ch 3 or later, so the probe never heard it. Try every input
+    // the device reports, capped so the probe stays short.
+    const _CAL_WIZARD_CHANNEL_PROBE_MAX_INPUTS = 8;
+
+    function _calWizardProbeChannelSteps(inputChannelNames) {
+        const names = Array.isArray(inputChannelNames) ? inputChannelNames.map((n) => String(n || '').trim()) : [];
+        if (names.length <= 2) return _CAL_WIZARD_INPUT_CHANNEL_OPTIONS.slice();
+        const count = Math.min(names.length, _CAL_WIZARD_CHANNEL_PROBE_MAX_INPUTS);
+        const steps = [_CAL_WIZARD_INPUT_CHANNEL_OPTIONS[0]];
+        for (let ch = 0; ch < count; ch++) {
+            const base = _calWizardEngineChannelLabel(ch);
+            steps.push({ ch, label: names[ch] ? `${base} (${names[ch]})` : base });
+        }
+        return steps;
+    }
+
+    // The engine's input channel names for the running device, or [] when the
+    // desktop can't say (older desktop builds, probe failure).
+    async function _calWizardEngineInputChannelNames(audio) {
+        if (!audio || typeof audio.getCurrentDevice !== 'function'
+            || typeof audio.probeDeviceOptions !== 'function') return [];
+        try {
+            const dev = await audio.getCurrentDevice();
+            if (!dev || !dev.input) return [];
+            const opts = await audio.probeDeviceOptions(
+                dev.inputType || dev.type, dev.input, dev.outputType || dev.type, dev.output);
+            return (opts && Array.isArray(opts.inputChannels)) ? opts.inputChannels : [];
+        } catch (_) {
+            return [];
+        }
+    }
+
+    // The channel the engine was on before the probe, from the saved device
+    // settings (what the Audio screen applied). null when unknown.
+    async function _calWizardSavedEngineInputChannel(audio) {
+        if (!audio || typeof audio.loadDeviceSettings !== 'function') return null;
+        try {
+            const cur = await audio.loadDeviceSettings();
+            const ch = cur ? parseInt(cur.inputChannel, 10) : NaN;
+            return Number.isInteger(ch) && ch >= -1 ? ch : null;
+        } catch (_) {
+            return null;
+        }
+    }
+
+    // The channel to put back after a probe. The saved setting when there is
+    // one; else the engine's live channel if it reports it; else Mono (-1),
+    // the engine default when nothing was ever saved.
+    async function _calWizardProbeRestoreChannel(audio, saved) {
+        if (saved !== null) return saved;
+        if (audio && typeof audio.getCurrentDevice === 'function') {
+            try {
+                const dev = await audio.getCurrentDevice();
+                const ch = dev ? parseInt(dev.inputChannel, 10) : NaN;
+                if (Number.isInteger(ch) && ch >= -1) return ch;
+            } catch (_) { /* fall through */ }
+        }
+        return -1;
+    }
+
+    // Bumped by every auto-detect run (per instance, so it survives the wizard
+    // closing and reopening). A cancelled run whose last await resolves after
+    // a newer run started must not touch the engine channel.
+    let _calWizardChannelProbeGen = 0;
 
     function _calWizardPluginChannelFromEngine(ch) {
         if (ch === 0) return 'left';
@@ -9002,13 +9072,13 @@ function createNoteDetector(options = {}) {
         if (t.ch === -1) return 'Mono';
         if (t.ch === 0) return 'Ch 1';
         if (t.ch === 1) return 'Ch 2';
+        if (Number.isInteger(t.ch) && t.ch >= 2) return `Ch ${t.ch + 1}`;
         return t.label || '?';
     }
 
     function _calWizardChannelProbeProgressLabel(ch) {
         if (ch === -1) return 'Mono Mix';
-        if (ch === 0) return 'Ch 1';
-        if (ch === 1) return 'Ch 2';
+        if (Number.isInteger(ch) && ch >= 0) return `Ch ${ch + 1}`;
         return 'Channel';
     }
 
@@ -9041,7 +9111,7 @@ function createNoteDetector(options = {}) {
         if (!mono || best.ch !== -1) return best;
         let bestSingle = null;
         for (const t of trials) {
-            if (t.ch !== 0 && t.ch !== 1) continue;
+            if (!(Number.isInteger(t.ch) && t.ch >= 0)) continue;
             if (!bestSingle || t.maxLevel > bestSingle.maxLevel
                 || (t.maxLevel === bestSingle.maxLevel && t.avgLevel > bestSingle.avgLevel)) {
                 bestSingle = t;
@@ -9060,38 +9130,29 @@ function createNoteDetector(options = {}) {
         const ch1 = _calWizardTrialByCh(trials, 0);
         const ch2 = _calWizardTrialByCh(trials, 1);
         const best = _calWizardPickChannelProbeWinner(trials);
-        const ch1ch2Close = !!(ch1 && ch2
-            && _calWizardLevelsClose(ch1.maxLevel, ch2.maxLevel, ratio));
-        const ch1usable = !!(ch1 && ch1.maxLevel >= _CAL_WIZARD_CHANNEL_PROBE_MIN_PEAK);
-        const ch2usable = !!(ch2 && ch2.maxLevel >= _CAL_WIZARD_CHANNEL_PROBE_MIN_PEAK);
-        const ambiguousCh12 = ch1ch2Close && ch1usable && ch2usable;
-        let suggested = ch2;
-        let alternate = ch1;
-        if (ch1 && ch2) {
-            if (ch2.maxLevel > ch1.maxLevel) {
-                suggested = ch2;
-                alternate = ch1;
-            } else if (ch1.maxLevel > ch2.maxLevel) {
-                suggested = ch1;
-                alternate = ch2;
-            } else if (ch2.avgLevel > ch1.avgLevel) {
-                suggested = ch2;
-                alternate = ch1;
-            } else if (ch1.avgLevel > ch2.avgLevel) {
-                suggested = ch1;
-                alternate = ch2;
-            } else {
-                // Exact tie — default suggestion to Ch 2 (Spark LIVE guitar path).
-                suggested = ch2;
-                alternate = ch1;
-            }
-        }
+        // The tie check runs on the two loudest single inputs, whichever they
+        // are: Ch 1/Ch 2 on a two-input device, but on an aggregate device a
+        // guitar on Ch 3 that clearly beats a headset mic on Ch 1/2 is not a
+        // tie, and a guitar heard on both Ch 3 and Ch 4 is. Exact ties put the
+        // higher channel first (Ch 2 over Ch 1: the Spark LIVE guitar path).
+        const singles = trials
+            .filter((t) => Number.isInteger(t.ch) && t.ch >= 0)
+            .sort((a, b) => (b.maxLevel - a.maxLevel) || (b.avgLevel - a.avgLevel) || (b.ch - a.ch));
+        const suggested = singles[0] || null;
+        const alternate = singles[1] || null;
+        const pairClose = !!(suggested && alternate
+            && _calWizardLevelsClose(suggested.maxLevel, alternate.maxLevel, ratio));
+        const pairUsable = !!(suggested && alternate
+            && suggested.maxLevel >= _CAL_WIZARD_CHANNEL_PROBE_MIN_PEAK
+            && alternate.maxLevel >= _CAL_WIZARD_CHANNEL_PROBE_MIN_PEAK);
+        const ambiguous = pairClose && pairUsable;
         return {
             best,
             ch1,
             ch2,
-            ch1ch2Close,
-            ambiguousCh12,
+            ambiguous,
+            // Back-compat name; true for any close top pair, not only Ch 1/Ch 2.
+            ambiguousCh12: ambiguous,
             suggested,
             alternate,
         };
@@ -9120,6 +9181,21 @@ function createNoteDetector(options = {}) {
         return true;
     }
 
+    // Buttons for an ambiguous result: the two close inputs, lowest first.
+    // A Ch 1 / Ch 2 pair keeps its Dry / Wet hints (Spark LIVE routing).
+    function _calWizardChannelProbePickHtml(result) {
+        const pair = [result && result.suggestedCh, result && result.alternateCh]
+            .filter((c) => Number.isInteger(c) && c >= 0)
+            .sort((a, b) => a - b);
+        if (pair.length !== 2) pair.splice(0, pair.length, 0, 1);
+        const hint = (pair[0] === 0 && pair[1] === 1) ? ['Dry / Clean', 'Wet / FX'] : [null, null];
+        const btn = (ch, h) => `<button type="button" class="nd-cal-pick-channel w-full py-2 bg-dark-600 hover:bg-dark-500 rounded-lg text-xs text-gray-200" data-ch="${ch}">${_calWizardChannelProbeProgressLabel(ch)}${h ? ` — ${h}` : ''}</button>`;
+        return `<div class="flex flex-col gap-1 mt-2">
+                    ${btn(pair[0], hint[0])}
+                    ${btn(pair[1], hint[1])}
+                   </div>`;
+    }
+
     function _calWizardFormatChannelProbeResult(result) {
         const summary = (result && result.trials) ? _calWizardChannelProbeTrialsSummary(result.trials) : '';
         if (!result || result.ok === false) {
@@ -9132,7 +9208,11 @@ function createNoteDetector(options = {}) {
             const alt = Number.isFinite(result.alternateCh)
                 ? _calWizardEngineChannelDisplayLabel(result.alternateCh)
                 : '—';
-            return `<span class="text-amber-200/90">Ch 1 and Ch 2 are very close.</span> Suggested: ${sug}, but ${alt} is also usable. Choose the channel that matches your setup.${summary ? `<div class="text-gray-500 mt-1">${summary}</div>` : ''}`;
+            const pair = [result.suggestedCh, result.alternateCh].filter(Number.isFinite).sort((a, b) => a - b);
+            const pairText = pair.length === 2
+                ? `${_calWizardChannelProbeProgressLabel(pair[0])} and ${_calWizardChannelProbeProgressLabel(pair[1])}`
+                : 'Two inputs';
+            return `<span class="text-amber-200/90">${pairText} are very close.</span> Suggested: ${sug}, but ${alt} is also usable. Choose the channel that matches your setup.${summary ? `<div class="text-gray-500 mt-1">${summary}</div>` : ''}`;
         }
         const levelPct = Math.round((result.bestLevel || 0) * 100);
         const peakPct = Math.round((result.bestPeak || 0) * 100);
@@ -9193,7 +9273,15 @@ function createNoteDetector(options = {}) {
         wiz.channelProbeAbort = token;
         renderCalibrationWizard();
         const trials = [];
-        const probeSteps = _CAL_WIZARD_INPUT_CHANNEL_OPTIONS;
+        // Each step switches the engine (and so the monitored guitar) to that
+        // channel. Unless a clear winner gets applied, put the original channel
+        // back: a no-result, ambiguous, cancelled or failed probe used to leave
+        // the engine on the last channel tried, silencing the guitar.
+        const gen = ++_calWizardChannelProbeGen;
+        const savedAtStart = await _calWizardSavedEngineInputChannel(audio);
+        const startCh = await _calWizardProbeRestoreChannel(audio, savedAtStart);
+        let winnerApplied = false;
+        const probeSteps = _calWizardProbeChannelSteps(await _calWizardEngineInputChannelNames(audio));
         try {
             for (let i = 0; i < probeSteps.length; i++) {
                 const opt = probeSteps[i];
@@ -9230,7 +9318,7 @@ function createNoteDetector(options = {}) {
                     trials,
                 };
             } else {
-                await _calWizardApplyEngineInputChannel(best.ch);
+                winnerApplied = await _calWizardApplyEngineInputChannel(best.ch);
                 wiz.channelProbeResult = {
                     ok: true,
                     clearWinner: true,
@@ -9244,8 +9332,22 @@ function createNoteDetector(options = {}) {
         } catch (e) {
             wiz.channelProbeError = (e && e.message) ? e.message : String(e);
         } finally {
+            // Restore only while this run is still the latest one (a cancelled
+            // run can wake after a newer one started switching channels) and
+            // nobody saved a different channel meanwhile (the user picked one on
+            // the Audio screen after closing the wizard; the probe itself never
+            // saves unless it applies a winner).
+            if (!winnerApplied && gen === _calWizardChannelProbeGen) {
+                try {
+                    const savedNow = await _calWizardSavedEngineInputChannel(audio);
+                    if (savedNow === savedAtStart && gen === _calWizardChannelProbeGen) {
+                        await audio.setInputChannel(startCh);
+                    }
+                } catch (_) { /* best effort */ }
+            }
             if (wiz.channelProbeAbort === token) wiz.channelProbeAbort = null;
-            wiz.channelProbeRunning = false;
+            // A stale run must not mark a newer run on this wizard as finished.
+            if (gen === _calWizardChannelProbeGen) wiz.channelProbeRunning = false;
             renderCalibrationWizard();
             _calWizardRefreshLive();
         }
@@ -9538,10 +9640,7 @@ function createNoteDetector(options = {}) {
             const probeBusy = wiz.channelProbeRunning;
             const probeAmbiguous = wiz.channelProbeResult && wiz.channelProbeResult.ok === 'ambiguous';
             const probePickHtml = probeAmbiguous
-                ? `<div class="flex flex-col gap-1 mt-2">
-                    <button type="button" class="nd-cal-pick-channel w-full py-2 bg-dark-600 hover:bg-dark-500 rounded-lg text-xs text-gray-200" data-ch="0">Ch 1 — Dry / Clean</button>
-                    <button type="button" class="nd-cal-pick-channel w-full py-2 bg-dark-600 hover:bg-dark-500 rounded-lg text-xs text-gray-200" data-ch="1">Ch 2 — Wet / FX</button>
-                   </div>`
+                ? _calWizardChannelProbePickHtml(wiz.channelProbeResult)
                 : '';
             const probeResultBoxClass = 'nd-cal-channel-probe-result text-[11px] mt-2 p-2 rounded-lg border border-gray-600 bg-dark-800/90';
             const probeResultHtml = wiz.channelProbeResult
