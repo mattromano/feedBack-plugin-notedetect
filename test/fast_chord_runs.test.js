@@ -195,12 +195,21 @@ test('scoreChord path: an EARLY strummed frame does not lock the chord in as a m
             await flush();
         }
     };
-    // Frame 1: 130 ms early — the ringing previous chord, not a strum.
-    hwTime = CHORD_T - 0.13;
+    // Frame 1: 130 ms early, with its own input-level attack, so the strum
+    // gate (no ML onsets here) passes it and the chord judges EARLY. The
+    // level poll runs after the detect poll, so a second pass sees the attack.
+    hwTime = CHORD_T - 0.5;         // quiet, before the window: primes the level baseline
     await runAll();
-    assert.equal(det.getStats().misses, 0, 'an EARLY frame inside the window must not book a miss');
-    // Frame 2: the on-time strum (an input-level attack; the level poll runs
-    // after the detect poll, so the next detect pass sees it).
+    hwTime = CHORD_T - 0.13;
+    level = 0.5;
+    await runAll();
+    await runAll();
+    assert.equal(det.getStats().misses, 0, 'an EARLY strummed frame inside the window must not book a miss');
+    level = 0.01;
+    hwTime = CHORD_T - 0.06;
+    await runAll();
+    assert.equal(det.getStats().misses, 0, 'still no miss while the EARLY strum is the only one');
+    // Frame 2: the on-time strum, a second attack.
     hwTime = CHORD_T;
     level = 0.5;
     await runAll();
