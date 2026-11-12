@@ -1,6 +1,6 @@
 {
   "name": "slopsmith-plugin-notedetect",
-  "version": "1.33.4",
+  "version": "1.33.5",
   "private": true,
   "description": "Slopsmith note detection plugin — test harness for detection core",
   "scripts": {

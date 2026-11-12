@@ -203,6 +203,30 @@ test('a note that gains a sustain or a technique at the same fret still re-pushe
     await flushPendingAsync();
 });
 
+test('a note that only gains a palm mute still re-pushes', async () => {
+    // pm is sent to the engine (it counts a palm-muted note on its pick attack),
+    // so a difficulty change that only flips palm-mute must change the
+    // signature and re-push, or the engine scores the note with the stale flag.
+    const ringing = [{ s: 0, f: 1, t: 1.0, sus: 0 }];
+    const muted = [{ s: 0, f: 1, t: 1.0, sus: 0, pm: true }];
+    const env = engineSandbox({ filtered: ringing });
+    const det = env.createNoteDetector({ isDefault: false });
+    await det.enable();
+    await flushPendingAsync();
+    const detectTick = await driveDetectTick(env.intervalCallbacks, env.calls);
+    assert.equal(typeof detectTick, 'function');
+    assert.equal(env.lastChart().notes[0].pm, false, 'starts ringing');
+
+    env.setDisplayed(muted);
+    await detectTick();
+    await flushPendingAsync();
+
+    assert.equal(env.lastChart().notes[0].pm, true, 'the palm-mute change must re-push');
+
+    det.destroy();
+    await flushPendingAsync();
+});
+
 test('a chord VOICING swap at the same onset still re-pushes', async () => {
     // Same onset, same member count, different frets — the chord equivalent of
     // the same-count trap above. Hashing only (onset, memberCount) would miss it
