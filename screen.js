@@ -5095,8 +5095,7 @@ function createNoteDetector(options = {}) {
         lastOnsetT = null;
         lastOnsetSource = null;
         prevOnsetLevel = null;
-        _ndRecentStrums.length = 0;
-        _ndUsedStrums.clear();
+        _ndClearStrums();
         // Disconnect the full node chain in reverse-connect order.
         // Critical in borrower mode (external audioCtx): we leave the
         // caller's context open, and any node we don't disconnect
@@ -5288,7 +5287,10 @@ function createNoteDetector(options = {}) {
                         : -Infinity;
                     if (songT < last - 0.05) {
                         // Time went backward (seek / drill wrap). Reset.
+                        // The strums too: the old pass's unused attacks
+                        // would otherwise book the replayed chords.
                         _ndLevelSamples.length = 0;
+                        _ndClearStrums();
                     }
                     _ndLevelSamples.push({ songT, level: inputLevel });
                     if (prevOnsetLevel != null && _ndLevelOnset(prevOnsetLevel, inputLevel)) {
@@ -5458,7 +5460,7 @@ function createNoteDetector(options = {}) {
             const avO = (hw.getAvOffset ? hw.getAvOffset() / 1000 : 0);
             const songT = hw.getTime() + avO;
             const last = _ndLevelSamples.length ? _ndLevelSamples[_ndLevelSamples.length - 1].songT : -Infinity;
-            if (songT < last - 0.05) _ndLevelSamples.length = 0;   // seek / drill-wrap → reset
+            if (songT < last - 0.05) { _ndLevelSamples.length = 0; _ndClearStrums(); }   // seek / drill-wrap → reset
             _ndLevelSamples.push({ songT, level: lvl });
             if (prevOnsetLevel != null && _ndLevelOnset(prevOnsetLevel, lvl)) {
                 _ndEmitOnset(songT - latencyOffset, { level: lvl, source: 'level' });
@@ -5780,6 +5782,11 @@ function createNoteDetector(options = {}) {
 
     // notedetect:onset — any new note attack, at chart time `t` with input
     // latency removed. Engine onsets and level attacks share one dedupe window.
+    function _ndClearStrums() {
+        _ndRecentStrums.length = 0;
+        _ndUsedStrums.clear();
+    }
+
     function _ndEmitOnset(t, fields) {
         if (!enabled || !Number.isFinite(t)) return;
         const { midi = null, confidence = null, level = null, source } = fields || {};
@@ -5788,8 +5795,7 @@ function createNoteDetector(options = {}) {
         lastOnsetSource = source;
         // A seek / drill wrap goes backward: older attacks are another timeline.
         if (_ndRecentStrums.length && t < _ndRecentStrums[_ndRecentStrums.length - 1] - 0.05) {
-            _ndRecentStrums.length = 0;
-            _ndUsedStrums.clear();
+            _ndClearStrums();
         }
         _ndRecentStrums.push(t);
         while (_ndRecentStrums.length > 32) _ndUsedStrums.delete(_ndRecentStrums.shift());
@@ -6882,7 +6888,11 @@ function createNoteDetector(options = {}) {
                 // on the first poll its shape scores in, i.e. as its window
                 // opens while the previous chord or the held shape still rings,
                 // and every chord in a riff reads ~120 ms EARLY.
-                const strumGate = usingDesktopBridge && !bridgeOnsetPrimed;
+                // Only when an input meter feeds level onsets: with none
+                // (no getLevels / getSourceLevels) there are never strums,
+                // and gating would leave every chord to checkMisses.
+                const strumGate = usingDesktopBridge && !bridgeOnsetPrimed
+                    && !bridgeLevelsUnavailable;
                 const levelStrumT = strumGate
                     ? _ndPickStrum(_ndRecentStrums, lead.t, tolerance, t,
                         _ndPrevStrikeOfPitch(notes, chords, null, lead.t, () => null, 1.0),

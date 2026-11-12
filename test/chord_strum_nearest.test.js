@@ -187,3 +187,44 @@ test('_ndPickStrum takes the nearest unused strum that is not the previous chord
     assert.equal(pickStrum([0.9], 1.0, 0.15, 1.1, 0.85, new Set()), null, 'nearer the previous strike at 0.85');
     assert.equal(pickStrum([1.05], 1.0, 0.15, 1.02, null, new Set()), null, 'not heard yet');
 });
+
+test('with no input meter, the level strum gate stays off', async () => {
+    // No ML onsets and no getLevels: there can never be a level strum, so
+    // the gate must not hold the chord back (it commits as before).
+    const env = sandbox([1.0], { ml: false, levels: false });
+    await env.det.enable();
+    await flush();
+    await env.pollAt(0.5);
+    await env.pollAt(0.95);
+    await env.pollAt(1.0);
+    const hits = env.judgments.filter((j) => j && j.chord && j.hit);
+    assert.deepEqual(hits.map((j) => j.noteTime), [1.0], 'the chord commits without a strum');
+    env.det.destroy();
+    await flush();
+});
+
+test('a loop wrap drops the previous pass\'s strums', async () => {
+    // Pass 1: an early attack at 0.90 books the chord, the real strum at
+    // 1.01 goes unused. After the drill wraps back to 0.5 the player is
+    // silent: the old pass's 1.01 must not book the replayed chord.
+    const env = sandbox([1.0], { ml: false });
+    await env.det.enable();
+    await flush();
+    await env.pollAt(0.5, { inputLevel: 0.01 });
+    await env.pollAt(0.90, { inputLevel: 0.5 });
+    await env.pollAt(0.93, { inputLevel: 0.01 });
+    await env.pollAt(1.01, { inputLevel: 0.5 });
+    await env.pollAt(1.02, { inputLevel: 0.5 });
+    await env.pollAt(1.6, { inputLevel: 0.01 });
+    assert.equal(env.judgments.filter((j) => j && j.chord && j.hit).length, 1, 'pass 1 hits');
+    const n1 = env.judgments.length;
+    for (const t of [0.5, 0.7, 0.9, 0.96, 1.0, 1.05, 1.6]) {
+        // eslint-disable-next-line no-await-in-loop
+        await env.pollAt(t, { inputLevel: 0.01 });
+    }
+    const pass2 = env.judgments.slice(n1).filter((j) => j && j.chord);
+    assert.ok(pass2.length > 0, 'the chord was reopened and retired');
+    assert.equal(pass2.filter((j) => j.hit).length, 0, 'no hit from a stale strum');
+    env.det.destroy();
+    await flush();
+});
