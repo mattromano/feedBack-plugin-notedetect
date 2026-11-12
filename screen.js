@@ -621,7 +621,8 @@ function _ndAbsoluteFret(fret, capo) {
 // The latest chart strike before `beforeT` that sounds `midi` (a single note
 // or any member of a chord) within `lookbackS`, or null. `notes` and `chords`
 // are the chart arrays, sorted by t; chord members take the chord's t.
-// `midiOf(note)` maps a chart note to MIDI. Muted notes sound no pitch.
+// `midiOf(note)` maps a chart note to MIDI; `midi` null matches any pitch.
+// Muted notes sound no pitch.
 function _ndPrevStrikeOfPitch(notes, chords, midi, beforeT, midiOf, lookbackS) {
     const floor = beforeT - lookbackS;
     const lastBefore = (arr) => {
@@ -633,15 +634,30 @@ function _ndPrevStrikeOfPitch(notes, chords, midi, beforeT, midiOf, lookbackS) {
     if (Array.isArray(notes)) {
         for (let i = lastBefore(notes); i >= 0 && notes[i].t >= floor; i--) {
             const n = notes[i];
-            if (!n.mt && midiOf(n) === midi) { best = n.t; break; }
+            if (!n.mt && (midi === null || midiOf(n) === midi)) { best = n.t; break; }
         }
     }
     if (Array.isArray(chords)) {
         for (let i = lastBefore(chords); i >= 0 && chords[i].t >= floor; i--) {
             const c = chords[i];
             if (best !== null && c.t <= best) break;
-            if ((c.notes || []).some((cn) => !cn.mt && midiOf(cn) === midi)) { best = c.t; break; }
+            if ((c.notes || []).some((cn) => !cn.mt && (midi === null || midiOf(cn) === midi))) { best = c.t; break; }
         }
+    }
+    return best;
+}
+
+// The strum (attack time, song seconds) that belongs to the chart strike at
+// `strikeT`, or null: inside the window [strikeT - tol, nowT], not already
+// used by another strike, not nearer the previous strike `prevT`, and the
+// nearest of those to `strikeT`.
+function _ndPickStrum(strums, strikeT, tol, nowT, prevT, used) {
+    let best = null;
+    for (const s of strums || []) {
+        if (!Number.isFinite(s) || s < strikeT - tol || s > nowT) continue;
+        if (used && used.has(s)) continue;
+        if (_ndOnsetNearerEarlierStrike(s, strikeT, prevT)) continue;
+        if (best === null || Math.abs(s - strikeT) < Math.abs(best - strikeT)) best = s;
     }
     return best;
 }
@@ -4085,6 +4101,12 @@ function createNoteDetector(options = {}) {
     let lastOnsetT = null;
     let lastOnsetSource = null;
     let prevOnsetLevel = null;
+    // Recent attacks (song seconds, every source after the dedupe) and the
+    // ones a chord already claimed: the chord path's strum gate when the ML
+    // transcriber is off (detectNotes resolves null), so a chord commits on a
+    // strum instead of the first poll its still-ringing shape scores in.
+    const _ndRecentStrums = [];
+    const _ndUsedStrums = new Set();
 
     // Visual-feedback tracking
     let lastHitCount = 0;
@@ -5073,6 +5095,8 @@ function createNoteDetector(options = {}) {
         lastOnsetT = null;
         lastOnsetSource = null;
         prevOnsetLevel = null;
+        _ndRecentStrums.length = 0;
+        _ndUsedStrums.clear();
         // Disconnect the full node chain in reverse-connect order.
         // Critical in borrower mode (external audioCtx): we leave the
         // caller's context open, and any node we don't disconnect
@@ -5762,6 +5786,13 @@ function createNoteDetector(options = {}) {
         if (!_ndOnsetDue(lastOnsetT, t, lastOnsetSource, source)) return;
         lastOnsetT = t;
         lastOnsetSource = source;
+        // A seek / drill wrap goes backward: older attacks are another timeline.
+        if (_ndRecentStrums.length && t < _ndRecentStrums[_ndRecentStrums.length - 1] - 0.05) {
+            _ndRecentStrums.length = 0;
+            _ndUsedStrums.clear();
+        }
+        _ndRecentStrums.push(t);
+        while (_ndRecentStrums.length > 32) _ndUsedStrums.delete(_ndRecentStrums.shift());
         dispatchInstanceEvent('notedetect:onset', { t, midi, confidence, level, source, isDefault });
     }
 
@@ -6844,9 +6875,21 @@ function createNoteDetector(options = {}) {
                         }
                     }
                 }
+                // No ML onsets on this build (detectNotes resolves null): gate
+                // on an input-level strum instead. Without it a chord commits
+                // on the first poll its shape scores in, i.e. as its window
+                // opens while the previous chord or the held shape still rings,
+                // and every chord in a riff reads ~120 ms EARLY.
+                const strumGate = usingDesktopBridge && !bridgeOnsetPrimed;
+                const levelStrumT = strumGate
+                    ? _ndPickStrum(_ndRecentStrums, lead.t, tolerance,
+                        hw.getTime() + avOffsetSec,
+                        _ndPrevStrikeOfPitch(notes, chords, null, lead.t, () => null, 1.0),
+                        _ndUsedStrums)
+                    : null;
                 const tChord = (chordFreshOnsetAge != null)
                     ? hw.getTime() + avOffsetSec - (chordFreshOnsetAge / 1000)
-                    : t;
+                    : (levelStrumT != null ? levelStrumT : t);
 
                 const chordJudgment = makeMatchedJudgment(
                     lead, lead.t, tChord, expectedMidi,
@@ -6871,7 +6914,8 @@ function createNoteDetector(options = {}) {
                 // still ringing — cache its diagnostics and wait for the
                 // strum poll (or checkMisses' voicing rescue).
                 if (!chordResult.isHit
-                    || (bridgeOnsetPrimed && chordFreshOnsetAge == null)) {
+                    || (bridgeOnsetPrimed && chordFreshOnsetAge == null)
+                    || (strumGate && levelStrumT == null)) {
                     // Stash the chordResult before bailing so that when
                     // checkMisses() retires this chord as a miss, the
                     // miss judgment can carry the scorer's per-string
@@ -6960,6 +7004,8 @@ function createNoteDetector(options = {}) {
                 // lenient chord hits where some strings rang and some
                 // didn't.
                 recordJudgment(chordKey, chordJudgment, { count: true, emit: true });
+                // One strum, one chord: the next chord can't claim it too.
+                if (levelStrumT != null) _ndUsedStrums.add(levelStrumT);
                 // Hit path doesn't need any cached miss-diagnostic for
                 // this chord — drop the entry so the map only holds
                 // truly-pending chords. Without this, the cache could

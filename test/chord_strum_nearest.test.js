@@ -22,11 +22,12 @@ async function flush(turns = 6) {
 const SHAPE = [{ s: 0, f: 5 }, { s: 1, f: 7 }];
 const MIDIS = [45, 52];
 
-function sandbox(chordTimes) {
+function sandbox(chordTimes, { ml = true } = {}) {
     const intervals = [];
     const judgments = [];
     let hwTime = 0;
     let poll = { seq: 0, ageMs: 0 };
+    let level = 0.01;
     const { createNoteDetector, prevStrikeOfPitch, onsetNearerEarlierStrike } = loadDetectionCore({
         sandboxBeforeRun(sb) {
             sb.setInterval = (cb) => { if (typeof cb === 'function') intervals.push(cb); return intervals.length; };
@@ -46,17 +47,18 @@ function sandbox(chordTimes) {
                     isAudioRunning: async () => true,
                     startAudio: async () => {},
                     getPitchDetection: async () => ({ midiNote: -1, confidence: 0, frequency: -1, cents: 0, noteName: '' }),
-                    getLevels: async () => ({ inputLevel: 0.2, inputPeak: 0.3, outputLevel: 0, outputPeak: 0 }),
+                    getLevels: async () => ({ inputLevel: level, inputPeak: level, outputLevel: 0, outputPeak: 0 }),
                     getSampleRate: async () => 48000,
                     // The shape rings through the whole riff: every frame scores.
                     scoreChord: async (ctx) => ({
                         score: 1, hitStrings: ctx.notes.length, totalStrings: ctx.notes.length, isHit: true,
                         results: ctx.notes.map((n) => ({ s: n.s, f: n.f, hit: true, bandEnergy: 0.2, centsDiff: 0, centsError: 0 })),
                     }),
-                    detectNotes: async () => ({
+                    // ml: false is a build whose ML transcriber is off.
+                    detectNotes: async () => (ml ? {
                         notes: MIDIS.map((midi) => ({ midi, confidence: 0.95, onsetMs: poll.ageMs, onsetSeq: poll.seq })),
                         sampleRate: 48000,
-                    }),
+                    } : null),
                 },
             };
         },
@@ -67,8 +69,10 @@ function sandbox(chordTimes) {
         det, judgments, prevStrikeOfPitch, onsetNearerEarlierStrike,
         // One detect poll at song time `t` that sees a strum `ageMs` old
         // (a new onsetSeq) or nothing new (same seq).
-        async pollAt(t, { strumAgeMs = null } = {}) {
+        // `inputLevel` sets the guitar level (a jump is a level attack).
+        async pollAt(t, { strumAgeMs = null, inputLevel = null } = {}) {
             hwTime = t;
+            if (inputLevel !== null) level = inputLevel;
             if (strumAgeMs !== null) poll = { seq: poll.seq + 1, ageMs: strumAgeMs };
             for (const cb of intervals) {
                 // eslint-disable-next-line no-await-in-loop
@@ -129,4 +133,35 @@ test('_ndOnsetNearerEarlierStrike splits at the midpoint', () => {
     assert.equal(near(1.005, 1.12, 1.0), true);
     assert.equal(near(1.08, 1.12, 1.0), false);
     assert.equal(near(1.005, 1.12, null), false, 'no earlier strike: the onset is this chord\'s');
+});
+
+test('with the ML transcriber off, a ringing chord waits for its strum', async () => {
+    // detectNotes resolves null (no ML model), so there are no engine onsets.
+    // The shape rings through the riff and scores on every poll. Before, each
+    // chord committed the moment its window opened: ~120-150 ms EARLY.
+    const env = sandbox([1.0, 1.5], { ml: false });
+    await env.det.enable();
+    await flush();
+    await env.pollAt(0.5, { inputLevel: 0.01 });
+    await env.pollAt(0.86, { inputLevel: 0.01 });      // window open, shape ringing, no strum
+    assert.equal(env.judgments.filter((j) => j && j.chord).length, 0, 'no chord committed without a strum');
+    await env.pollAt(1.01, { inputLevel: 0.5 });       // strum
+    await env.pollAt(1.02);
+    await env.pollAt(1.36, { inputLevel: 0.3 });       // decaying ring: not an attack
+    await env.pollAt(1.52, { inputLevel: 0.01 });
+    await env.pollAt(1.53, { inputLevel: 0.6 });       // next strum
+    await env.pollAt(1.54);
+    const hits = env.judgments.filter((j) => j && j.chord && j.hit);
+    assert.deepEqual(hits.map((j) => j.noteTime), [1.0, 1.5]);
+    assert.deepEqual(hits.map((j) => j.timingError), [10, 30], 'each chord timed by its own strum');
+    env.det.destroy();
+    await flush();
+});
+
+test('_ndPickStrum takes the nearest unused strum that is not the previous chord one', () => {
+    const { pickStrum } = loadDetectionCore();
+    assert.equal(pickStrum([0.9, 1.01, 1.2], 1.0, 0.15, 1.1, null, new Set()), 1.01);
+    assert.equal(pickStrum([0.9, 1.01], 1.0, 0.15, 1.1, null, new Set([1.01])), 0.9, 'used strum skipped');
+    assert.equal(pickStrum([0.9], 1.0, 0.15, 1.1, 0.85, new Set()), null, 'nearer the previous strike at 0.85');
+    assert.equal(pickStrum([1.05], 1.0, 0.15, 1.02, null, new Set()), null, 'not heard yet');
 });

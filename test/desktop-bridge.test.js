@@ -305,7 +305,13 @@ test('bridge path: dedup guard — chord already recorded skips scoreChord on su
                         calls.getPitchDetection++;
                         return { midiNote: -1, confidence: 0, frequency: -1, cents: 0, noteName: '' };
                     },
-                    getLevels: async () => ({ inputLevel: 0, inputPeak: 0, outputLevel: 0, outputPeak: 0 }),
+                    // Silence, then a strum: on the bridge without ML onsets a
+                    // chord commits only on an input-level attack.
+                    getLevels: async () => {
+                        calls.getLevels = (calls.getLevels || 0) + 1;
+                        const l = calls.getLevels > 1 ? 0.5 : 0;
+                        return { inputLevel: l, inputPeak: l, outputLevel: 0, outputPeak: 0 };
+                    },
                     getSampleRate: async () => 48000,
                     // Score as a clean hit so the first tick records
                     // the chord-level key and the second tick's
@@ -333,24 +339,26 @@ test('bridge path: dedup guard — chord already recorded skips scoreChord on su
     await flushPendingAsync();
 
     let detectTick = null;
-    for (const cb of intervalCallbacks) {
-        const before = calls.getPitchDetection;
-        await cb();
-        await flushPendingAsync();
-        if (calls.getPitchDetection > before) {
-            detectTick = cb;
-            break;
+    // Passes over every interval until the chord is recorded (the strum is
+    // heard by the level poll, which runs after the detect poll in a pass).
+    for (let pass = 0; pass < 5 && det.getStats().hits === 0; pass++) {
+        for (const cb of intervalCallbacks) {
+            const before = calls.getPitchDetection;
+            await cb();
+            await flushPendingAsync();
+            if (calls.getPitchDetection > before) detectTick = cb;
         }
     }
     assert.equal(typeof detectTick, 'function');
-    assert.equal(calls.scoreChord, 1, 'first tick should score the chord exactly once');
+    assert.equal(det.getStats().hits, 1, 'the chord is recorded on its strum');
+    const scoredBefore = calls.scoreChord;
 
     // Second tick against the same chord (still inside the default
     // timing-tolerance window at t=0). The chord-key dedup check
     // must short-circuit before issuing a second scoreChord IPC.
     await detectTick();
     await flushPendingAsync();
-    assert.equal(calls.scoreChord, 1,
+    assert.equal(calls.scoreChord, scoredBefore,
         'second tick must not re-score a chord that has already been recorded');
 
     det.destroy();
