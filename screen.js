@@ -622,8 +622,12 @@ function _ndAbsoluteFret(fret, capo) {
 // or any member of a chord) within `lookbackS`, or null. `notes` and `chords`
 // are the chart arrays, sorted by t; chord members take the chord's t.
 // `midiOf(note)` maps a chart note to MIDI; `midi` null matches any pitch.
-// Muted notes sound no pitch.
-function _ndPrevStrikeOfPitch(notes, chords, midi, beforeT, midiOf, lookbackS) {
+// Muted notes sound no pitch. With `pickedOnly`, hammer-ons and pull-offs
+// are skipped too: they sound a pitch but make no pick attack, so they are
+// not the strike an input-level attack belongs to.
+function _ndPrevStrikeOfPitch(notes, chords, midi, beforeT, midiOf, lookbackS, pickedOnly = false) {
+    const strikes = (n) => !n.mt && !(pickedOnly && (n.ho || n.po))
+        && (midi === null || midiOf(n) === midi);
     const floor = beforeT - lookbackS;
     const lastBefore = (arr) => {
         let lo = 0, hi = arr.length;
@@ -634,14 +638,14 @@ function _ndPrevStrikeOfPitch(notes, chords, midi, beforeT, midiOf, lookbackS) {
     if (Array.isArray(notes)) {
         for (let i = lastBefore(notes); i >= 0 && notes[i].t >= floor; i--) {
             const n = notes[i];
-            if (!n.mt && (midi === null || midiOf(n) === midi)) { best = n.t; break; }
+            if (strikes(n)) { best = n.t; break; }
         }
     }
     if (Array.isArray(chords)) {
         for (let i = lastBefore(chords); i >= 0 && chords[i].t >= floor; i--) {
             const c = chords[i];
             if (best !== null && c.t <= best) break;
-            if ((c.notes || []).some((cn) => !cn.mt && (midi === null || midiOf(cn) === midi))) { best = c.t; break; }
+            if ((c.notes || []).some(strikes)) { best = c.t; break; }
         }
     }
     return best;
@@ -6903,7 +6907,7 @@ function createNoteDetector(options = {}) {
                     && !bridgeLevelsUnavailable;
                 const levelStrumT = strumGate
                     ? _ndPickStrum(_ndRecentStrums, lead.t, tolerance, t,
-                        _ndPrevStrikeOfPitch(notes, chords, null, lead.t, () => null, 1.0),
+                        _ndPrevStrikeOfPitch(notes, chords, null, lead.t, () => null, 1.0, true),
                         _ndUsedStrums)
                     : null;
                 const tChord = (chordFreshOnsetAge != null)

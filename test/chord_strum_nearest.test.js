@@ -148,6 +148,9 @@ test('_ndPrevStrikeOfPitch finds the last earlier strike sounding that pitch', (
     assert.equal(_ndPrevStrikeOfPitch(notes, chords, 45, 0.6, midiOf, 1.0), 0.5);
     assert.equal(_ndPrevStrikeOfPitch(notes, chords, 45, 1.0, midiOf, 0.2), null, 'outside the lookback');
     assert.equal(_ndPrevStrikeOfPitch(notes, chords, 60, 1.0, midiOf, 1.0), null);
+    const legato = [{ t: 0.5, m: 45 }, { t: 0.9, m: 47, ho: true }, { t: 0.95, m: 45, po: true }];
+    assert.equal(_ndPrevStrikeOfPitch(legato, [], null, 1.0, midiOf, 1.0), 0.95, 'legato counts by default');
+    assert.equal(_ndPrevStrikeOfPitch(legato, [], null, 1.0, midiOf, 1.0, true), 0.5, 'pickedOnly skips HO/PO');
 });
 
 test('_ndOnsetNearerEarlierStrike splits at the midpoint', () => {
@@ -290,6 +293,23 @@ test('with the strum gate on, an EARLY ring does not pin the voicing rescue', as
     assert.equal(chords.length, 1);
     assert.equal(chords[0].hit, true, 'rescued as a hit');
     assert.equal(chords[0].timingError, -50, 'judged at the first in-window frame');
+    env.det.destroy();
+    await flush();
+});
+
+test('a hammer-on just before the chord does not claim its strum', async () => {
+    // A hammer-on at 0.95 makes no pick attack. The chord at 1.0, strummed
+    // at 0.97, is nearer the hammer-on than the chord: if the hammer-on
+    // counted as the previous strike the strum would be excluded and the
+    // chord could never commit through the strum gate.
+    const env = sandbox([1.0], { ml: false, notes: [{ t: 0.95, s: 2, f: 7, ho: true }] });
+    await env.det.enable();
+    await flush();
+    await env.pollAt(0.5, { inputLevel: 0.01 });
+    await env.pollAt(0.97, { inputLevel: 0.5 });       // the strum, 30 ms early
+    await env.pollAt(1.04, { inputLevel: 0.3 });
+    const hits = env.judgments.filter((j) => j && j.chord && j.hit);
+    assert.deepEqual(hits.map((j) => j.timingError), [-30]);
     env.det.destroy();
     await flush();
 });
