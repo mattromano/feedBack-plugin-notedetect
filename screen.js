@@ -6859,7 +6859,9 @@ function createNoteDetector(options = {}) {
                 // about one strum EARLY and the real strum is left for the next.
                 let chordFreshOnsetAge = null;
                 if (bridgeOnsetPrimed && bridgeNewOnsets.size > 0) {
-                    const nowT = hw.getTime() + avOffsetSec;
+                    // Onset times in chart time: `t` already removes the input
+                    // latency, as notedetect:onset does, so they compare with
+                    // cn.t / prevT and the judgment is not latencyOffset late.
                     const midiOf = (n) => _ndMidiFromStringFret(
                         n.s, n.f, currentArrangement, currentStringCount,
                         tuningOffsets, capo
@@ -6869,7 +6871,7 @@ function createNoteDetector(options = {}) {
                         const o = bridgeNewOnsets.get(m);
                         if (!o) continue;
                         const prevT = _ndPrevStrikeOfPitch(notes, chords, m, cn.t, midiOf, 1.0);
-                        if (_ndOnsetNearerEarlierStrike(nowT - o.ageMs / 1000, cn.t, prevT)) continue;
+                        if (_ndOnsetNearerEarlierStrike(t - o.ageMs / 1000, cn.t, prevT)) continue;
                         if (chordFreshOnsetAge === null || o.ageMs < chordFreshOnsetAge) {
                             chordFreshOnsetAge = o.ageMs;
                         }
@@ -6882,13 +6884,12 @@ function createNoteDetector(options = {}) {
                 // and every chord in a riff reads ~120 ms EARLY.
                 const strumGate = usingDesktopBridge && !bridgeOnsetPrimed;
                 const levelStrumT = strumGate
-                    ? _ndPickStrum(_ndRecentStrums, lead.t, tolerance,
-                        hw.getTime() + avOffsetSec,
+                    ? _ndPickStrum(_ndRecentStrums, lead.t, tolerance, t,
                         _ndPrevStrikeOfPitch(notes, chords, null, lead.t, () => null, 1.0),
                         _ndUsedStrums)
                     : null;
                 const tChord = (chordFreshOnsetAge != null)
-                    ? hw.getTime() + avOffsetSec - (chordFreshOnsetAge / 1000)
+                    ? t - (chordFreshOnsetAge / 1000)
                     : (levelStrumT != null ? levelStrumT : t);
 
                 const chordJudgment = makeMatchedJudgment(

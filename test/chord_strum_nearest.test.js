@@ -22,7 +22,7 @@ async function flush(turns = 6) {
 const SHAPE = [{ s: 0, f: 5 }, { s: 1, f: 7 }];
 const MIDIS = [45, 52];
 
-function sandbox(chordTimes, { ml = true } = {}) {
+function sandbox(chordTimes, { ml = true, latency = 0, settings = {}, voicing = false, levels = true, notes = [] } = {}) {
     const intervals = [];
     const judgments = [];
     let hwTime = 0;
@@ -31,7 +31,7 @@ function sandbox(chordTimes, { ml = true } = {}) {
     const { createNoteDetector, prevStrikeOfPitch, onsetNearerEarlierStrike } = loadDetectionCore({
         sandboxBeforeRun(sb) {
             sb.setInterval = (cb) => { if (typeof cb === 'function') intervals.push(cb); return intervals.length; };
-            sb.highway.getNotes = () => ([]);
+            sb.highway.getNotes = () => notes.map((n) => ({ ...n }));
             sb.highway.getChords = () => chordTimes.map((t) => ({ t, notes: SHAPE.map((n) => ({ ...n })) }));
             sb.highway.getTime = () => hwTime;
             sb.highway.getAvOffset = () => 0;
@@ -51,7 +51,7 @@ function sandbox(chordTimes, { ml = true } = {}) {
                     getSampleRate: async () => 48000,
                     // The shape rings through the whole riff: every frame scores.
                     scoreChord: async (ctx) => ({
-                        score: 1, hitStrings: ctx.notes.length, totalStrings: ctx.notes.length, isHit: true,
+                        score: 1, hitStrings: ctx.notes.length, totalStrings: ctx.notes.length, isHit: true, voicingHit: voicing,
                         results: ctx.notes.map((n) => ({ s: n.s, f: n.f, hit: true, bandEnergy: 0.2, centsDiff: 0, centsError: 0 })),
                     }),
                     // ml: false is a build whose ML transcriber is off.
@@ -61,10 +61,14 @@ function sandbox(chordTimes, { ml = true } = {}) {
                     } : null),
                 },
             };
+            // levels: false is a build with no input meter (no getLevels).
+            if (!levels) delete sb.window.feedBackDesktop.audio.getLevels;
         },
     });
     const det = createNoteDetector({ isDefault: false });
-    det.applySettings({ timingTolerance: 0.15, timingHitThreshold: 0.1, chordTimingHitThreshold: 0.15, latencyOffset: 0 });
+    det.applySettings({
+        timingTolerance: 0.15, timingHitThreshold: 0.1, chordTimingHitThreshold: 0.15, latencyOffset: latency, ...settings,
+    });
     return {
         det, judgments, prevStrikeOfPitch, onsetNearerEarlierStrike,
         // One detect poll at song time `t` that sees a strum `ageMs` old
@@ -96,6 +100,24 @@ test('a strum seen while the next chord window is open goes to the chord it is n
     const hits = env.judgments.filter((j) => j && j.chord && j.hit);
     assert.deepEqual(hits.map((j) => j.noteTime), [1.0, 1.12], 'each chord got its own strum');
     assert.deepEqual(hits.map((j) => j.timingError), [5, 5], 'neither chord is booked a strum early');
+    env.det.destroy();
+    await flush();
+});
+
+test('with an input latency, a strum still goes to the chord it is nearest', async () => {
+    // Same riff as above with latencyOffset 80 ms: every poll is 80 ms later
+    // on the playhead. The engine onset age is measured on the input, so the
+    // strum's chart time must have the latency removed, or the strum for the
+    // first chord reads 80 ms later, past the midpoint, and both chords book it.
+    const env = sandbox([1.0, 1.12], { latency: 0.08 });
+    await env.det.enable();
+    await flush();
+    await env.pollAt(0.58, { strumAgeMs: 0 });
+    await env.pollAt(1.16, { strumAgeMs: 75 });        // strum at chart 1.005
+    await env.pollAt(1.21, { strumAgeMs: 5 });         // strum at chart 1.125
+    const hits = env.judgments.filter((j) => j && j.chord && j.hit);
+    assert.deepEqual(hits.map((j) => j.noteTime), [1.0, 1.12], 'each chord got its own strum');
+    assert.deepEqual(hits.map((j) => j.timingError), [5, 5], 'timed in chart time, latency removed');
     env.det.destroy();
     await flush();
 });
