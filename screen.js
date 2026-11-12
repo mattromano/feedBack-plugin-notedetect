@@ -9130,41 +9130,29 @@ function createNoteDetector(options = {}) {
         const ch1 = _calWizardTrialByCh(trials, 0);
         const ch2 = _calWizardTrialByCh(trials, 1);
         const best = _calWizardPickChannelProbeWinner(trials);
-        const ch1ch2Close = !!(ch1 && ch2
-            && _calWizardLevelsClose(ch1.maxLevel, ch2.maxLevel, ratio));
-        const ch1usable = !!(ch1 && ch1.maxLevel >= _CAL_WIZARD_CHANNEL_PROBE_MIN_PEAK);
-        const ch2usable = !!(ch2 && ch2.maxLevel >= _CAL_WIZARD_CHANNEL_PROBE_MIN_PEAK);
-        // A later input that beat both (the guitar on Ch 3+ of an aggregate
-        // device, with a headset mic on Ch 1/2) is a clear answer, not a tie.
-        const laterInputWins = !!(best && Number.isInteger(best.ch) && best.ch >= 2);
-        const ambiguousCh12 = ch1ch2Close && ch1usable && ch2usable && !laterInputWins;
-        let suggested = ch2;
-        let alternate = ch1;
-        if (ch1 && ch2) {
-            if (ch2.maxLevel > ch1.maxLevel) {
-                suggested = ch2;
-                alternate = ch1;
-            } else if (ch1.maxLevel > ch2.maxLevel) {
-                suggested = ch1;
-                alternate = ch2;
-            } else if (ch2.avgLevel > ch1.avgLevel) {
-                suggested = ch2;
-                alternate = ch1;
-            } else if (ch1.avgLevel > ch2.avgLevel) {
-                suggested = ch1;
-                alternate = ch2;
-            } else {
-                // Exact tie — default suggestion to Ch 2 (Spark LIVE guitar path).
-                suggested = ch2;
-                alternate = ch1;
-            }
-        }
+        // The tie check runs on the two loudest single inputs, whichever they
+        // are: Ch 1/Ch 2 on a two-input device, but on an aggregate device a
+        // guitar on Ch 3 that clearly beats a headset mic on Ch 1/2 is not a
+        // tie, and a guitar heard on both Ch 3 and Ch 4 is. Exact ties put the
+        // higher channel first (Ch 2 over Ch 1: the Spark LIVE guitar path).
+        const singles = trials
+            .filter((t) => Number.isInteger(t.ch) && t.ch >= 0)
+            .sort((a, b) => (b.maxLevel - a.maxLevel) || (b.avgLevel - a.avgLevel) || (b.ch - a.ch));
+        const suggested = singles[0] || null;
+        const alternate = singles[1] || null;
+        const pairClose = !!(suggested && alternate
+            && _calWizardLevelsClose(suggested.maxLevel, alternate.maxLevel, ratio));
+        const pairUsable = !!(suggested && alternate
+            && suggested.maxLevel >= _CAL_WIZARD_CHANNEL_PROBE_MIN_PEAK
+            && alternate.maxLevel >= _CAL_WIZARD_CHANNEL_PROBE_MIN_PEAK);
+        const ambiguous = pairClose && pairUsable;
         return {
             best,
             ch1,
             ch2,
-            ch1ch2Close,
-            ambiguousCh12,
+            ambiguous,
+            // Back-compat name; true for any close top pair, not only Ch 1/Ch 2.
+            ambiguousCh12: ambiguous,
             suggested,
             alternate,
         };
@@ -9193,6 +9181,21 @@ function createNoteDetector(options = {}) {
         return true;
     }
 
+    // Buttons for an ambiguous result: the two close inputs, lowest first.
+    // A Ch 1 / Ch 2 pair keeps its Dry / Wet hints (Spark LIVE routing).
+    function _calWizardChannelProbePickHtml(result) {
+        const pair = [result && result.suggestedCh, result && result.alternateCh]
+            .filter((c) => Number.isInteger(c) && c >= 0)
+            .sort((a, b) => a - b);
+        if (pair.length !== 2) pair.splice(0, pair.length, 0, 1);
+        const hint = (pair[0] === 0 && pair[1] === 1) ? ['Dry / Clean', 'Wet / FX'] : [null, null];
+        const btn = (ch, h) => `<button type="button" class="nd-cal-pick-channel w-full py-2 bg-dark-600 hover:bg-dark-500 rounded-lg text-xs text-gray-200" data-ch="${ch}">${_calWizardChannelProbeProgressLabel(ch)}${h ? ` — ${h}` : ''}</button>`;
+        return `<div class="flex flex-col gap-1 mt-2">
+                    ${btn(pair[0], hint[0])}
+                    ${btn(pair[1], hint[1])}
+                   </div>`;
+    }
+
     function _calWizardFormatChannelProbeResult(result) {
         const summary = (result && result.trials) ? _calWizardChannelProbeTrialsSummary(result.trials) : '';
         if (!result || result.ok === false) {
@@ -9205,7 +9208,11 @@ function createNoteDetector(options = {}) {
             const alt = Number.isFinite(result.alternateCh)
                 ? _calWizardEngineChannelDisplayLabel(result.alternateCh)
                 : '—';
-            return `<span class="text-amber-200/90">Ch 1 and Ch 2 are very close.</span> Suggested: ${sug}, but ${alt} is also usable. Choose the channel that matches your setup.${summary ? `<div class="text-gray-500 mt-1">${summary}</div>` : ''}`;
+            const pair = [result.suggestedCh, result.alternateCh].filter(Number.isFinite).sort((a, b) => a - b);
+            const pairText = pair.length === 2
+                ? `${_calWizardChannelProbeProgressLabel(pair[0])} and ${_calWizardChannelProbeProgressLabel(pair[1])}`
+                : 'Two inputs';
+            return `<span class="text-amber-200/90">${pairText} are very close.</span> Suggested: ${sug}, but ${alt} is also usable. Choose the channel that matches your setup.${summary ? `<div class="text-gray-500 mt-1">${summary}</div>` : ''}`;
         }
         const levelPct = Math.round((result.bestLevel || 0) * 100);
         const peakPct = Math.round((result.bestPeak || 0) * 100);
@@ -9633,10 +9640,7 @@ function createNoteDetector(options = {}) {
             const probeBusy = wiz.channelProbeRunning;
             const probeAmbiguous = wiz.channelProbeResult && wiz.channelProbeResult.ok === 'ambiguous';
             const probePickHtml = probeAmbiguous
-                ? `<div class="flex flex-col gap-1 mt-2">
-                    <button type="button" class="nd-cal-pick-channel w-full py-2 bg-dark-600 hover:bg-dark-500 rounded-lg text-xs text-gray-200" data-ch="0">Ch 1 — Dry / Clean</button>
-                    <button type="button" class="nd-cal-pick-channel w-full py-2 bg-dark-600 hover:bg-dark-500 rounded-lg text-xs text-gray-200" data-ch="1">Ch 2 — Wet / FX</button>
-                   </div>`
+                ? _calWizardChannelProbePickHtml(wiz.channelProbeResult)
                 : '';
             const probeResultBoxClass = 'nd-cal-channel-probe-result text-[11px] mt-2 p-2 rounded-lg border border-gray-600 bg-dark-800/90';
             const probeResultHtml = wiz.channelProbeResult
