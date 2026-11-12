@@ -662,6 +662,14 @@ function _ndPickStrum(strums, strikeT, tol, nowT, prevT, used) {
     return best;
 }
 
+// True once a strum at `s` for the strike at `strikeT` can no longer lose to
+// a nearer one: it is at or after the strike, or `nowT` is already as far
+// past the strike as `s` is before it (a strum not heard yet is stamped at
+// or after `nowT`, so it would be no nearer).
+function _ndStrumSettled(s, strikeT, nowT) {
+    return s >= strikeT || nowT >= 2 * strikeT - s;
+}
+
 // True when an onset at `onsetT` is nearer the previous strike of its pitch
 // (`prevT`) than the strike at `strikeT`, so it belongs to the earlier one.
 function _ndOnsetNearerEarlierStrike(onsetT, strikeT, prevT) {
@@ -6924,9 +6932,17 @@ function createNoteDetector(options = {}) {
                 // isHit frame with no fresh onset is just the chord's pitches
                 // still ringing — cache its diagnostics and wait for the
                 // strum poll (or checkMisses' voicing rescue).
+                //
+                // Under the level strum gate a strum picked BEFORE the chord
+                // that would hit waits until a later strum could no longer be
+                // nearer: the pick only sees strums heard so far, and the
+                // first attack in the window would otherwise win.
+                const strumWaiting = levelStrumT != null && chordJudgment.hit
+                    && !_ndStrumSettled(levelStrumT, lead.t, t);
+                const strumHeld = strumGate && (levelStrumT == null || strumWaiting);
                 if (!chordResult.isHit
                     || (bridgeOnsetPrimed && chordFreshOnsetAge == null)
-                    || (strumGate && levelStrumT == null)) {
+                    || strumHeld) {
                     // Stash the chordResult before bailing so that when
                     // checkMisses() retires this chord as a miss, the
                     // miss judgment can carry the scorer's per-string
@@ -6977,9 +6993,20 @@ function createNoteDetector(options = {}) {
                     // the retire-tick time (which is by definition past
                     // the chord's match window and would classify the
                     // rescued judgment as LATE, defeating the rescue).
+                    //
+                    // Under the level strum gate the frame's time is its
+                    // strum when one was picked (tChord), and a frame the
+                    // gate held with no strum pins nothing while it is EARLY:
+                    // that ring is the previous chord, and pinning it would
+                    // judge the rescue at the window's opening.
+                    let frameVoicingT = chordResult.voicingHit ? t : null;
+                    if (frameVoicingT != null && strumGate) {
+                        frameVoicingT = (strumHeld && chordJudgment.timingState === 'EARLY')
+                            ? null : tChord;
+                    }
                     const voicingT = (prev && prev.voicingT)
                         ? prev.voicingT
-                        : (chordResult.voicingHit ? t : null);
+                        : frameVoicingT;
                     _chordLastResult.set(chordKey, {
                         score:        useNewSnapshot ? chordResult.score        : prev.score,
                         hitStrings:   useNewSnapshot ? chordResult.hitStrings   : prev.hitStrings,

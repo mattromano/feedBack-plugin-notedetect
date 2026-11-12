@@ -204,9 +204,10 @@ test('with no input meter, the level strum gate stays off', async () => {
 });
 
 test('a loop wrap drops the previous pass\'s strums', async () => {
-    // Pass 1: an early attack at 0.90 books the chord, the real strum at
-    // 1.01 goes unused. After the drill wraps back to 0.5 the player is
-    // silent: the old pass's 1.01 must not book the replayed chord.
+    // Pass 1: a stray attack at 0.90 and the real strum at 1.01; the strum
+    // books the chord and the stray attack stays unused. After the drill
+    // wraps back to 0.5 the player is silent: the old pass's attack must
+    // not book the replayed chord.
     const env = sandbox([1.0], { ml: false });
     await env.det.enable();
     await flush();
@@ -225,6 +226,70 @@ test('a loop wrap drops the previous pass\'s strums', async () => {
     const pass2 = env.judgments.slice(n1).filter((j) => j && j.chord);
     assert.ok(pass2.length > 0, 'the chord was reopened and retired');
     assert.equal(pass2.filter((j) => j.hit).length, 0, 'no hit from a stale strum');
+    env.det.destroy();
+    await flush();
+});
+
+test('an early attack waits for a nearer strum', async () => {
+    // A stray attack 100 ms before the chord (inside the hit window) is
+    // heard first; the real strum lands 10 ms after. The chord is the
+    // strum's, not the first attack's.
+    const env = sandbox([1.0], { ml: false });
+    await env.det.enable();
+    await flush();
+    await env.pollAt(0.5, { inputLevel: 0.01 });
+    await env.pollAt(0.90, { inputLevel: 0.5 });       // stray attack
+    await env.pollAt(0.93, { inputLevel: 0.01 });
+    await env.pollAt(0.97, { inputLevel: 0.01 });
+    assert.equal(env.judgments.filter((j) => j && j.chord).length, 0, 'the early attack does not commit yet');
+    await env.pollAt(1.01, { inputLevel: 0.5 });       // the strum
+    await env.pollAt(1.02, { inputLevel: 0.5 });
+    const hits = env.judgments.filter((j) => j && j.chord && j.hit);
+    assert.deepEqual(hits.map((j) => j.timingError), [10], 'timed by the nearer strum');
+    env.det.destroy();
+    await flush();
+});
+
+test('an early attack with no nearer strum commits once none can come', async () => {
+    const env = sandbox([1.0], { ml: false });
+    await env.det.enable();
+    await flush();
+    await env.pollAt(0.5, { inputLevel: 0.01 });
+    await env.pollAt(0.94, { inputLevel: 0.5 });       // strum 60 ms early
+    await env.pollAt(1.0, { inputLevel: 0.3 });
+    assert.equal(env.judgments.filter((j) => j && j.chord).length, 0, 'still waiting at the strike');
+    await env.pollAt(1.07, { inputLevel: 0.2 });       // 70 ms past: no nearer strum is possible
+    const hits = env.judgments.filter((j) => j && j.chord && j.hit);
+    assert.deepEqual(hits.map((j) => j.timingError), [-60]);
+    env.det.destroy();
+    await flush();
+});
+
+test('_ndStrumSettled', () => {
+    const { strumSettled } = loadDetectionCore();
+    assert.equal(strumSettled(1.01, 1.0, 1.01), true, 'at or after the strike');
+    assert.equal(strumSettled(0.9, 1.0, 1.05), false, 'a strum before 1.1 could still be nearer');
+    assert.equal(strumSettled(0.9, 1.0, 1.1), true);
+});
+
+test('with the strum gate on, an EARLY ring does not pin the voicing rescue', async () => {
+    // The shape rings through the window at a steady level (no attack the
+    // gate can see). The chord retires through the voicing rescue, judged
+    // at the first frame inside the hit window, not at the -140 ms ring.
+    const env = sandbox([2.0], {
+        ml: false, voicing: true,
+        settings: { timingHitThreshold: 0.08, chordTimingHitThreshold: 0.10 },
+    });
+    await env.det.enable();
+    await flush();
+    for (const t of [1.4, 1.86, 1.95, 2.0, 2.05, 2.4, 2.8, 3.2]) {
+        // eslint-disable-next-line no-await-in-loop
+        await env.pollAt(t, { inputLevel: 0.3 });
+    }
+    const chords = env.judgments.filter((j) => j && j.chord);
+    assert.equal(chords.length, 1);
+    assert.equal(chords[0].hit, true, 'rescued as a hit');
+    assert.equal(chords[0].timingError, -50, 'judged at the first in-window frame');
     env.det.destroy();
     await flush();
 });
