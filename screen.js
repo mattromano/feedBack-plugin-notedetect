@@ -9003,6 +9003,26 @@ function createNoteDetector(options = {}) {
         }
     }
 
+    // The channel to put back after a probe. The saved setting when there is
+    // one; else the engine's live channel if it reports it; else Mono (-1),
+    // the engine default when nothing was ever saved.
+    async function _calWizardProbeRestoreChannel(audio, saved) {
+        if (saved !== null) return saved;
+        if (audio && typeof audio.getCurrentDevice === 'function') {
+            try {
+                const dev = await audio.getCurrentDevice();
+                const ch = dev ? parseInt(dev.inputChannel, 10) : NaN;
+                if (Number.isInteger(ch) && ch >= -1) return ch;
+            } catch (_) { /* fall through */ }
+        }
+        return -1;
+    }
+
+    // Bumped by every auto-detect run (per instance, so it survives the wizard
+    // closing and reopening). A cancelled run whose last await resolves after
+    // a newer run started must not touch the engine channel.
+    let _calWizardChannelProbeGen = 0;
+
     function _calWizardPluginChannelFromEngine(ch) {
         if (ch === 0) return 'left';
         if (ch === 1) return 'right';
@@ -9250,7 +9270,9 @@ function createNoteDetector(options = {}) {
         // channel. Unless a clear winner gets applied, put the original channel
         // back: a no-result, ambiguous, cancelled or failed probe used to leave
         // the engine on the last channel tried, silencing the guitar.
-        const startCh = await _calWizardSavedEngineInputChannel(audio);
+        const gen = ++_calWizardChannelProbeGen;
+        const savedAtStart = await _calWizardSavedEngineInputChannel(audio);
+        const startCh = await _calWizardProbeRestoreChannel(audio, savedAtStart);
         let winnerApplied = false;
         const probeSteps = _calWizardProbeChannelSteps(await _calWizardEngineInputChannelNames(audio));
         try {
@@ -9303,11 +9325,22 @@ function createNoteDetector(options = {}) {
         } catch (e) {
             wiz.channelProbeError = (e && e.message) ? e.message : String(e);
         } finally {
-            if (!winnerApplied && startCh !== null) {
-                try { await audio.setInputChannel(startCh); } catch (_) { /* best effort */ }
+            // Restore only while this run is still the latest one (a cancelled
+            // run can wake after a newer one started switching channels) and
+            // nobody saved a different channel meanwhile (the user picked one on
+            // the Audio screen after closing the wizard; the probe itself never
+            // saves unless it applies a winner).
+            if (!winnerApplied && gen === _calWizardChannelProbeGen) {
+                try {
+                    const savedNow = await _calWizardSavedEngineInputChannel(audio);
+                    if (savedNow === savedAtStart && gen === _calWizardChannelProbeGen) {
+                        await audio.setInputChannel(startCh);
+                    }
+                } catch (_) { /* best effort */ }
             }
             if (wiz.channelProbeAbort === token) wiz.channelProbeAbort = null;
-            wiz.channelProbeRunning = false;
+            // A stale run must not mark a newer run on this wizard as finished.
+            if (gen === _calWizardChannelProbeGen) wiz.channelProbeRunning = false;
             renderCalibrationWizard();
             _calWizardRefreshLive();
         }
