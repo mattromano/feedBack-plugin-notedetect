@@ -222,7 +222,9 @@ test('a loop wrap drops the previous pass\'s strums', async () => {
     await env.pollAt(1.6, { inputLevel: 0.01 });
     assert.equal(env.judgments.filter((j) => j && j.chord && j.hit).length, 1, 'pass 1 hits');
     const n1 = env.judgments.length;
-    for (const t of [0.5, 0.7, 0.9, 0.96, 1.0, 1.05, 1.6]) {
+    // 1.12: by then the old 0.90 attack would have settled (no strum could be
+    // nearer the chord), so only the wrap's clear keeps it from booking.
+    for (const t of [0.5, 0.7, 0.9, 0.96, 1.0, 1.05, 1.12, 1.6]) {
         // eslint-disable-next-line no-await-in-loop
         await env.pollAt(t, { inputLevel: 0.01 });
     }
@@ -275,27 +277,30 @@ test('_ndStrumSettled', () => {
     assert.equal(strumSettled(0.9, 1.0, 1.1), true);
 });
 
-test('with the strum gate on, an EARLY ring does not pin the voicing rescue', async () => {
-    // The shape rings through the window at a steady level (no attack the
-    // gate can see). The chord retires through the voicing rescue, judged
-    // at the first frame inside the hit window, not at the -140 ms ring.
-    const env = sandbox([2.0], {
-        ml: false, voicing: true,
-        settings: { timingHitThreshold: 0.08, chordTimingHitThreshold: 0.10 },
+for (const [name, settings] of [
+    ['default hit windows', {}],
+    ['a tightened chord hit window', { timingHitThreshold: 0.08, chordTimingHitThreshold: 0.10 }],
+]) {
+    test(`with the strum gate on, an early ring does not pin the voicing rescue (${name})`, async () => {
+        // The shape rings through the window at a steady level (no attack the
+        // gate can see). The chord retires through the voicing rescue, judged
+        // at the held frame nearest the chord (2.03), not at the -140 ms ring
+        // the window opens on.
+        const env = sandbox([2.0], { ml: false, voicing: true, settings });
+        await env.det.enable();
+        await flush();
+        for (const t of [1.4, 1.86, 1.95, 2.03, 2.4, 2.8, 3.2]) {
+            // eslint-disable-next-line no-await-in-loop
+            await env.pollAt(t, { inputLevel: 0.3 });
+        }
+        const chords = env.judgments.filter((j) => j && j.chord);
+        assert.equal(chords.length, 1);
+        assert.equal(chords[0].hit, true, 'rescued as a hit');
+        assert.equal(chords[0].timingError, 30, 'judged at the held frame nearest the chord');
+        env.det.destroy();
+        await flush();
     });
-    await env.det.enable();
-    await flush();
-    for (const t of [1.4, 1.86, 1.95, 2.0, 2.05, 2.4, 2.8, 3.2]) {
-        // eslint-disable-next-line no-await-in-loop
-        await env.pollAt(t, { inputLevel: 0.3 });
-    }
-    const chords = env.judgments.filter((j) => j && j.chord);
-    assert.equal(chords.length, 1);
-    assert.equal(chords[0].hit, true, 'rescued as a hit');
-    assert.equal(chords[0].timingError, -50, 'judged at the first in-window frame');
-    env.det.destroy();
-    await flush();
-});
+}
 
 test('a hammer-on just before the chord does not claim its strum', async () => {
     // A hammer-on at 0.95 makes no pick attack. The chord at 1.0, strummed

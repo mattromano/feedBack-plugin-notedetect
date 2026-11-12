@@ -6999,18 +6999,33 @@ function createNoteDetector(options = {}) {
                     // rescued judgment as LATE, defeating the rescue).
                     //
                     // Under the level strum gate the frame's time is its
-                    // strum when one was picked (tChord), and a frame the
-                    // gate held with no strum pins nothing while it is EARLY:
-                    // that ring is the previous chord, and pinning it would
-                    // judge the rescue at the window's opening.
+                    // strum when one was picked. A frame the gate held with
+                    // no strum pins nothing while it is EARLY (that ring is
+                    // the previous chord), and otherwise pins only until a
+                    // frame nearer the chart time: the first held frame is
+                    // the window's opening, which would judge the rescue
+                    // ~tolerance EARLY even at default hit windows.
                     let frameVoicingT = chordResult.voicingHit ? t : null;
+                    let frameHeld = false;
                     if (frameVoicingT != null && strumGate) {
-                        frameVoicingT = (strumHeld && chordJudgment.timingState === 'EARLY')
-                            ? null : tChord;
+                        if (levelStrumT != null) {
+                            frameVoicingT = levelStrumT;
+                        } else if (chordJudgment.timingState === 'EARLY') {
+                            frameVoicingT = null;
+                        } else {
+                            frameHeld = true;
+                        }
                     }
-                    const voicingT = (prev && prev.voicingT)
-                        ? prev.voicingT
-                        : frameVoicingT;
+                    // A strum-timed pin is sticky (first wins, as before). A
+                    // held frame's pin is not: the strum's time is unknown,
+                    // so a later held frame nearer the chart time replaces
+                    // it, and any strum-timed frame replaces it.
+                    const prevHeld = !!(prev && prev.voicingHeld);
+                    const replacePin = frameVoicingT != null && (!(prev && prev.voicingT)
+                        || (prevHeld && (!frameHeld
+                            || Math.abs(frameVoicingT - lead.t) < Math.abs(prev.voicingT - lead.t))));
+                    const voicingT = replacePin ? frameVoicingT : (prev && prev.voicingT) || null;
+                    const voicingHeld = replacePin ? frameHeld : prevHeld;
                     _chordLastResult.set(chordKey, {
                         score:        useNewSnapshot ? chordResult.score        : prev.score,
                         hitStrings:   useNewSnapshot ? chordResult.hitStrings   : prev.hitStrings,
@@ -7018,6 +7033,7 @@ function createNoteDetector(options = {}) {
                         strings:      useNewSnapshot ? _ndStringVerdicts(chordResult.results) : prev.strings,
                         voicingHit:   voicingEver,
                         voicingT,
+                        voicingHeld,
                     });
                     // Do not lock in a miss while the chord is still within
                     // its timing window. Chords can enter candidateNotes as
