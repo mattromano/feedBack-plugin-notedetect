@@ -14169,7 +14169,8 @@ function createNoteDetector(options = {}) {
             mix(((nn.s | 0) * 100) + (nn.f | 0));
             mix(Math.round((Number.isFinite(nn.sus) ? nn.sus : 0) * 1000));
             mix((nn.ho ? 1 : 0) | (nn.po ? 2 : 0) | (_ndHasBend(nn) ? 4 : 0)
-                | (_ndHasSlide(nn) ? 8 : 0) | (nn.hm ? 16 : 0) | (nn.mt ? 32 : 0));
+                | (_ndHasSlide(nn) ? 8 : 0) | (nn.hm ? 16 : 0) | (nn.mt ? 32 : 0)
+                | (nn.pm ? 64 : 0));
         };
         for (const nn of notes) if (nn) mixNote(nn);
         for (const ch of _ndChartChords()) {

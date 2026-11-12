@@ -130,6 +130,26 @@ test('setContainedChart pushes the consumer notes + verify params, returns true'
     await flushPendingAsync();
 });
 
+test('setContainedChart carries the palm-mute flag to the engine', async () => {
+    const env = containedSandbox();
+    const det = env.createNoteDetector({ isDefault: false });
+    await det.enable();
+    await flushPendingAsync();
+
+    const armed = await det.setContainedChart([
+        { id: 'pm-0', t: 0.5, s: 0, f: 5, sus: 0, pm: true },
+        { id: 'pm-1', t: 1.0, s: 1, f: 7, sus: 0 },
+    ], { arrangement: 'guitar' });
+    assert.equal(armed, true);
+
+    const pushed = env.setChartPayloads[env.setChartPayloads.length - 1];
+    assert.equal(pushed.notes.map(n => n.id + ':' + n.pm).join(','), 'pm-0:true,pm-1:false',
+        'a palm-muted contained note reaches the engine with pm set');
+
+    det.destroy();
+    await flushPendingAsync();
+});
+
 test('setContainedChart honours an openMidis bass ctx (arrangement/strings/params)', async () => {
     const env = containedSandbox();
     const det = env.createNoteDetector({ isDefault: false });
