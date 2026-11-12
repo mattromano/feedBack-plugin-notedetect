@@ -316,7 +316,7 @@ const _ND_AUTO_ENABLE_RETRY_MS = 1500;
 // exact build that produced it. The script tag has no `import`/`fetch`
 // hook to read package.json at load time, so this is the single
 // hand-maintained constant the diagnostic path keys off of.
-const _ND_VERSION = '1.33.1';
+const _ND_VERSION = '1.33.4';
 
 // Bleed-rescue tuning for the low-bass blind spot. A bass DI's fundamental is
 // weaker than its 2nd harmonic and an open string / neighbour often rings the
@@ -616,6 +616,41 @@ function _ndMidiToName(midi) {
 // scored. Returns the fret counted from the nut.
 function _ndAbsoluteFret(fret, capo) {
     return fret === 0 && capo > 0 ? capo : fret;
+}
+
+// The latest chart strike before `beforeT` that sounds `midi` (a single note
+// or any member of a chord) within `lookbackS`, or null. `notes` and `chords`
+// are the chart arrays, sorted by t; chord members take the chord's t.
+// `midiOf(note)` maps a chart note to MIDI. Muted notes sound no pitch.
+function _ndPrevStrikeOfPitch(notes, chords, midi, beforeT, midiOf, lookbackS) {
+    const floor = beforeT - lookbackS;
+    const lastBefore = (arr) => {
+        let lo = 0, hi = arr.length;
+        while (lo < hi) { const mid = (lo + hi) >> 1; if (arr[mid].t < beforeT) lo = mid + 1; else hi = mid; }
+        return lo - 1;
+    };
+    let best = null;
+    if (Array.isArray(notes)) {
+        for (let i = lastBefore(notes); i >= 0 && notes[i].t >= floor; i--) {
+            const n = notes[i];
+            if (!n.mt && midiOf(n) === midi) { best = n.t; break; }
+        }
+    }
+    if (Array.isArray(chords)) {
+        for (let i = lastBefore(chords); i >= 0 && chords[i].t >= floor; i--) {
+            const c = chords[i];
+            if (best !== null && c.t <= best) break;
+            if ((c.notes || []).some((cn) => !cn.mt && midiOf(cn) === midi)) { best = c.t; break; }
+        }
+    }
+    return best;
+}
+
+// True when an onset at `onsetT` is nearer the previous strike of its pitch
+// (`prevT`) than the strike at `strikeT`, so it belongs to the earlier one.
+function _ndOnsetNearerEarlierStrike(onsetT, strikeT, prevT) {
+    return Number.isFinite(onsetT) && Number.isFinite(prevT) && prevT < strikeT
+        && onsetT < (prevT + strikeT) / 2;
 }
 
 function _ndMidiFromStringFret(string, fret, arrangement, stringCount, offsets, capo) {
@@ -6784,15 +6819,27 @@ function createNoteDetector(options = {}) {
                 // pitches ringing on through the surrounding riff drag the
                 // match progressively earlier. chordFreshOnsetAge is the
                 // freshest such onset (ms), used to back-date the judgment.
+                //
+                // A strum belongs to the chart strike nearest it. In a riff
+                // of one repeated shape the previous strum is still "fresh"
+                // when this chord's window opens (up to timingTolerance
+                // early), so an onset nearer the previous strike of the same
+                // pitch is skipped here: otherwise it books this chord
+                // about one strum EARLY and the real strum is left for the next.
                 let chordFreshOnsetAge = null;
                 if (bridgeOnsetPrimed && bridgeNewOnsets.size > 0) {
+                    const nowT = hw.getTime() + avOffsetSec;
+                    const midiOf = (n) => _ndMidiFromStringFret(
+                        n.s, n.f, currentArrangement, currentStringCount,
+                        tuningOffsets, capo
+                    );
                     for (const cn of group) {
-                        const m = _ndMidiFromStringFret(
-                            cn.s, cn.f, currentArrangement, currentStringCount,
-                            tuningOffsets, capo
-                        );
+                        const m = midiOf(cn);
                         const o = bridgeNewOnsets.get(m);
-                        if (o && (chordFreshOnsetAge === null || o.ageMs < chordFreshOnsetAge)) {
+                        if (!o) continue;
+                        const prevT = _ndPrevStrikeOfPitch(notes, chords, m, cn.t, midiOf, 1.0);
+                        if (_ndOnsetNearerEarlierStrike(nowT - o.ageMs / 1000, cn.t, prevT)) continue;
+                        if (chordFreshOnsetAge === null || o.ageMs < chordFreshOnsetAge) {
                             chordFreshOnsetAge = o.ageMs;
                         }
                     }

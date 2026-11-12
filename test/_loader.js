@@ -191,6 +191,7 @@ function loadDetectionCore({ sandboxBeforeRun } = {}) {
         '_ndStringBandHz', '_ndBandEnergy',
         '_ndConstraintCheckString', '_ndScoreChord',
         '_ndClassifyTiming', '_ndClassifyPitch', '_ndMakeJudgment',
+        '_ndPrevStrikeOfPitch', '_ndOnsetNearerEarlierStrike',
         '_ndMultiplierForStreak', '_ndIsStreakMilestone', '_ndGradeFor',
         '_ndComputeBestDelta', '_ndPickHeroAction',
         'createNoteDetector',
@@ -276,6 +277,8 @@ function loadDetectionCore({ sandboxBeforeRun } = {}) {
         constraintCheckString: sandbox._ndConstraintCheckString,
         classifyTiming: sandbox._ndClassifyTiming,
         classifyPitch: sandbox._ndClassifyPitch,
+        prevStrikeOfPitch: sandbox._ndPrevStrikeOfPitch,
+        onsetNearerEarlierStrike: sandbox._ndOnsetNearerEarlierStrike,
         makeJudgment: (opts) => {
             const r = sandbox._ndMakeJudgment(opts);
             const toSF = o => (o ? { s: o.s, f: o.f } : o);
