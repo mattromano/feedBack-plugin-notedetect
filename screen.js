@@ -316,7 +316,7 @@ const _ND_AUTO_ENABLE_RETRY_MS = 1500;
 // exact build that produced it. The script tag has no `import`/`fetch`
 // hook to read package.json at load time, so this is the single
 // hand-maintained constant the diagnostic path keys off of.
-const _ND_VERSION = '1.33.1';
+const _ND_VERSION = '1.33.5';
 
 // Bleed-rescue tuning for the low-bass blind spot. A bass DI's fundamental is
 // weaker than its 2nd harmonic and an open string / neighbour often rings the
@@ -14238,7 +14238,7 @@ function createNoteDetector(options = {}) {
                 s: n.s,
                 f: n.f,
                 sus: Number.isFinite(n.sus) ? n.sus : 0,
-                ho: !!n.ho, po: !!n.po, b: _ndHasBend(n), sl: _ndHasSlide(n), hm: !!n.hm,
+                ho: !!n.ho, po: !!n.po, b: _ndHasBend(n), sl: _ndHasSlide(n), hm: !!n.hm, pm: !!n.pm,
             };
             notes.push(entry);
             byId.set(id, { ...n });
@@ -14257,7 +14257,7 @@ function createNoteDetector(options = {}) {
                     s: cn.s,
                     f: cn.f,
                     sus: Number.isFinite(cn.sus) ? cn.sus : 0,
-                    ho: !!cn.ho, po: !!cn.po, b: _ndHasBend(cn), sl: _ndHasSlide(cn), hm: !!cn.hm,
+                    ho: !!cn.ho, po: !!cn.po, b: _ndHasBend(cn), sl: _ndHasSlide(cn), hm: !!cn.hm, pm: !!cn.pm,
                 };
                 notes.push(entry);
                 byId.set(id, { ...cn, t: c.t });
@@ -14872,7 +14872,7 @@ function createNoteDetector(options = {}) {
                 s: n.s,
                 f: n.f,
                 sus: Number.isFinite(n.sus) ? n.sus : 0,
-                ho: !!n.ho, po: !!n.po, b: _ndHasBend(n), sl: _ndHasSlide(n), hm: !!n.hm,
+                ho: !!n.ho, po: !!n.po, b: _ndHasBend(n), sl: _ndHasSlide(n), hm: !!n.hm, pm: !!n.pm,
             };
             entries.push(entry);
             byId.set(n.id, { ...n });
