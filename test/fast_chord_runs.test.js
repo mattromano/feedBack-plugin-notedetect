@@ -150,6 +150,7 @@ test('engine verifier: a chord stamped well before its window is still EARLY', a
 test('scoreChord path: an EARLY strummed frame does not lock the chord in as a miss', async () => {
     const intervals = [];
     let hwTime = 0;
+    let level = 0.01;
     const { createNoteDetector } = loadDetectionCore({
         sandboxBeforeRun(sb) {
             sb.setInterval = (cb) => { if (typeof cb === 'function') intervals.push(cb); return intervals.length; };
@@ -165,7 +166,7 @@ test('scoreChord path: an EARLY strummed frame does not lock the chord in as a m
                     isAudioRunning: async () => true,
                     startAudio: async () => {},
                     getPitchDetection: async () => ({ midiNote: -1, confidence: 0, frequency: -1, cents: 0, noteName: '' }),
-                    getLevels: async () => ({ inputLevel: 0.2, inputPeak: 0.3, outputLevel: 0, outputPeak: 0 }),
+                    getLevels: async () => ({ inputLevel: level, inputPeak: level, outputLevel: 0, outputPeak: 0 }),
                     getSampleRate: async () => 48000,
                     // The previous chord's identical shape is ringing: every
                     // frame in the window scores as the chord.
@@ -194,12 +195,24 @@ test('scoreChord path: an EARLY strummed frame does not lock the chord in as a m
             await flush();
         }
     };
-    // Frame 1: 130 ms early — the ringing previous chord, not a strum.
-    hwTime = CHORD_T - 0.13;
+    // Frame 1: 130 ms early, with its own input-level attack, so the strum
+    // gate (no ML onsets here) passes it and the chord judges EARLY. The
+    // level poll runs after the detect poll, so a second pass sees the attack.
+    hwTime = CHORD_T - 0.5;         // quiet, before the window: primes the level baseline
     await runAll();
-    assert.equal(det.getStats().misses, 0, 'an EARLY frame inside the window must not book a miss');
-    // Frame 2: the on-time strum.
+    hwTime = CHORD_T - 0.13;
+    level = 0.5;
+    await runAll();
+    await runAll();
+    assert.equal(det.getStats().misses, 0, 'an EARLY strummed frame inside the window must not book a miss');
+    level = 0.01;
+    hwTime = CHORD_T - 0.06;
+    await runAll();
+    assert.equal(det.getStats().misses, 0, 'still no miss while the EARLY strum is the only one');
+    // Frame 2: the on-time strum, a second attack.
     hwTime = CHORD_T;
+    level = 0.5;
+    await runAll();
     await runAll();
     const s = det.getStats();
     assert.equal(s.misses, 0, 'still no miss');
